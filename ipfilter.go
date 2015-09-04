@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/mholt/caddy/config/setup"
 	"github.com/mholt/caddy/middleware"
@@ -186,7 +185,7 @@ func ipfilterParse(c *setup.Controller) (ipfconfig, error) {
 					return config, c.ArgErr()
 				}
 				config.Type = value
-				config.CountryCodes = strings.Split(c.Val(), " ")
+				config.CountryCodes = c.RemainingArgs()
 			}
 		}
 	}
