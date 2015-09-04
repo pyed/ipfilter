@@ -1,9 +1,10 @@
 package ipfilter
 
 import (
-	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/mholt/caddy/config/setup"
@@ -18,6 +19,7 @@ type IPFilter struct {
 
 type ipfconfig struct {
 	PathScope    string
+	BlockPage    string // optional page to write to blocked requests
 	Database     string
 	Type         string // allow or block
 	CountryCodes []string
@@ -30,22 +32,26 @@ type onlyCountry struct {
 	} `maxminddb:"country"`
 }
 
-// for speed, we will spin a goroutine that will listen on `IPChan`;
+// for efficiency, we will spin a goroutine that will listen on `IPChan`;
 // and will do the lookup and send back the country code over `CCChan`.
 var (
 	IPChan = make(chan string) // send IPs over this channel
 	CCChan = make(chan string) // get CountryCodes over this channel
 )
 
+// 'lookup' will be spawned in a goroutine to listen to 'IPChan'
 func lookup(database string) {
 	db, _ := maxminddb.Open(database)
 	defer db.Close()
 
 	var ipInfo onlyCountry
 	var parsedIP net.IP
+	// listening loop
 	for {
+		// get the IP and parse it into `net.IP`
 		parsedIP = net.ParseIP(<-IPChan)
 		db.Lookup(parsedIP, &ipInfo)
+		// send the country code through 'CCChan'
 		CCChan <- ipInfo.Country.ISOCode
 	}
 }
@@ -71,16 +77,19 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 }
 
 func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
+	// if we are not in our scope, pass-thru
+	if !middleware.Path(r.URL.Path).Matches(ipf.Config.PathScope) {
+		return ipf.Next.ServeHTTP(w, r)
+	}
 
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
+
 	// send the IP to 'IPChan' and get the client's country from 'CCChan'
 	IPChan <- clientIP
 	clientCountry := <-CCChan
-
-	fmt.Printf("%v\nIP: %s\nCC: %s\n", ipf.Config, clientIP, clientCountry)
 
 	switch ipf.Config.Type {
 	case "allow":
@@ -89,18 +98,51 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 				return ipf.Next.ServeHTTP(w, r)
 			}
 		}
+		// if we have blockpage, write it
+		if ipf.Config.BlockPage != "" {
+			bp, err := os.Open(ipf.Config.BlockPage)
+			if err != nil {
+				return http.StatusInternalServerError, err
+			}
+			defer bp.Close()
+
+			if _, err := io.Copy(w, bp); err != nil {
+				return http.StatusInternalServerError, err
+			}
+			// we wrote the blockpage, return OK
+			return http.StatusOK, nil
+
+		}
+		// if we don't have blockpage, return forbidden
 		return http.StatusForbidden, nil
 
 	case "block":
 		for _, c := range ipf.Config.CountryCodes {
 			if clientCountry == c {
+				// if we have blockpage, write it
+				if ipf.Config.BlockPage != "" {
+					bp, err := os.Open(ipf.Config.BlockPage)
+					if err != nil {
+						return http.StatusInternalServerError, err
+					}
+					defer bp.Close()
+
+					if _, err := io.Copy(w, bp); err != nil {
+						return http.StatusInternalServerError, err
+					}
+					// we wrote the blockpage, return OK
+					return http.StatusOK, nil
+				}
+				// if we don't have blockpage, return forbidden
 				return http.StatusForbidden, nil
 			}
 		}
+		// the client isn't blocked, pass-thru
 		return ipf.Next.ServeHTTP(w, r)
 
+	default: // we have to return anyway
+		return ipf.Next.ServeHTTP(w, r)
 	}
-	return ipf.Next.ServeHTTP(w, r)
 
 }
 
@@ -122,7 +164,22 @@ func ipfilterParse(c *setup.Controller) (ipfconfig, error) {
 				if !c.NextArg() {
 					return config, c.ArgErr()
 				}
-				config.Database = c.Val()
+				// check if the database file exists
+				database := c.Val()
+				if _, err := os.Stat(database); os.IsNotExist(err) {
+					return config, c.Err("No such file: " + database)
+				}
+				config.Database = database
+			case "blockpage":
+				if !c.NextArg() {
+					return config, c.ArgErr()
+				}
+				// check if blockpage exists
+				blockpage := c.Val()
+				if _, err := os.Stat(blockpage); os.IsNotExist(err) {
+					return config, c.Err("No such file: " + blockpage)
+				}
+				config.BlockPage = blockpage
 
 			case "allow", "block":
 				if !c.NextArg() {
@@ -133,7 +190,7 @@ func ipfilterParse(c *setup.Controller) (ipfconfig, error) {
 			}
 		}
 	}
-	// we have to have both
+	// These two are mandatory
 	if config.Database == "" || config.Type == "" {
 		return config, c.ArgErr()
 	}
