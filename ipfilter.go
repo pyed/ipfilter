@@ -1,6 +1,7 @@
 package ipfilter
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -16,6 +17,7 @@ type IPFilter struct {
 }
 
 type ipfconfig struct {
+	PathScope    string
 	Database     string
 	Type         string // allow or block
 	CountryCodes []string
@@ -28,11 +30,37 @@ type onlyCountry struct {
 	} `maxminddb:"country"`
 }
 
+// for speed, we will spin a goroutine that will listen on `IPChan`;
+// and will do the lookup and send back the country code over `CCChan`.
+var (
+	IPChan = make(chan string) // send IPs over this channel
+	CCChan = make(chan string) // get CountryCodes over this channel
+)
+
+func lookup(database string) {
+	db, _ := maxminddb.Open(database)
+	defer db.Close()
+
+	var ipInfo onlyCountry
+	var parsedIP net.IP
+	for {
+		parsedIP = net.ParseIP(<-IPChan)
+		db.Lookup(parsedIP, &ipInfo)
+		CCChan <- ipInfo.Country.ISOCode
+	}
+}
+
 func Setup(c *setup.Controller) (middleware.Middleware, error) {
 	ifconfig, err := ipfilterParse(c)
 	if err != nil {
 		return nil, err
 	}
+
+	// spawn a goroutine that will listen on 'IPChan'
+	c.Startup = append(c.Startup, func() error {
+		go lookup(ifconfig.Database)
+		return nil
+	})
 
 	return func(next middleware.Handler) middleware.Handler {
 		return &IPFilter{
@@ -43,30 +71,16 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 }
 
 func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
-	db, err := maxminddb.Open(ipf.Config.Database)
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
-	defer db.Close()
-
-	getCountryCode := func(ip string) (string, error) {
-		parsedIP := net.ParseIP(ip)
-
-		var ipInfo onlyCountry
-		if err := db.Lookup(parsedIP, &ipInfo); err != nil {
-			return "", err
-		}
-		return ipInfo.Country.ISOCode, nil
-	}
 
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
-	clientCountry, err := getCountryCode(clientIP)
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
+	// send the IP to 'IPChan' and get the client's country from 'CCChan'
+	IPChan <- clientIP
+	clientCountry := <-CCChan
+
+	fmt.Printf("%v\nIP: %s\nCC: %s\n", ipf.Config, clientIP, clientCountry)
 
 	switch ipf.Config.Type {
 	case "allow":
@@ -94,26 +108,32 @@ func ipfilterParse(c *setup.Controller) (ipfconfig, error) {
 	var config ipfconfig
 
 	for c.Next() {
-		if c.Val() == "ipfilter" {
-			for c.NextBlock() {
-				value := c.Val()
-				switch value {
-				case "database":
-					if !c.NextArg() {
-						return config, c.ArgErr()
-					}
-					config.Database = c.Val()
 
-				case "allow", "block":
-					if !c.NextArg() {
-						return config, c.ArgErr()
-					}
-					config.Type = value
-					config.CountryCodes = strings.Split(c.Val(), " ")
+		// get the pathscope
+		if !c.NextArg() || c.Val() == "{" {
+			return config, c.ArgErr()
+		}
+		config.PathScope = c.Val()
+
+		for c.NextBlock() {
+			value := c.Val()
+			switch value {
+			case "database":
+				if !c.NextArg() {
+					return config, c.ArgErr()
 				}
+				config.Database = c.Val()
+
+			case "allow", "block":
+				if !c.NextArg() {
+					return config, c.ArgErr()
+				}
+				config.Type = value
+				config.CountryCodes = strings.Split(c.Val(), " ")
 			}
 		}
 	}
+	// we have to have both
 	if config.Database == "" || config.Type == "" {
 		return config, c.ArgErr()
 	}
