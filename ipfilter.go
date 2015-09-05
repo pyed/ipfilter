@@ -18,9 +18,9 @@ type IPFilter struct {
 
 type ipfconfig struct {
 	PathScope    string
-	BlockPage    string // optional page to write to blocked requests
 	Database     string
-	Type         string // allow or block
+	BlockPage    string // optional page to write to blocked requests
+	Rule         string // allow or block
 	CountryCodes []string
 }
 
@@ -31,29 +31,8 @@ type onlyCountry struct {
 	} `maxminddb:"country"`
 }
 
-// for efficiency, we will spin a goroutine that will listen on `IPChan`;
-// and will do the lookup and send back the country code over `CCChan`.
-var (
-	IPChan = make(chan string) // send IPs over this channel
-	CCChan = make(chan string) // get CountryCodes over this channel
-)
-
-// 'lookup' will be spawned in a goroutine to listen to 'IPChan'
-func lookup(database string) {
-	db, _ := maxminddb.Open(database)
-	defer db.Close()
-
-	var ipInfo onlyCountry
-	var parsedIP net.IP
-	// listening loop
-	for {
-		// get the IP and parse it into `net.IP`
-		parsedIP = net.ParseIP(<-IPChan)
-		db.Lookup(parsedIP, &ipInfo)
-		// send the country code through 'CCChan'
-		CCChan <- ipInfo.Country.ISOCode
-	}
-}
+// The database will get bound to this variable
+var DB *maxminddb.Reader
 
 func Setup(c *setup.Controller) (middleware.Middleware, error) {
 	ifconfig, err := ipfilterParse(c)
@@ -61,11 +40,11 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 		return nil, err
 	}
 
-	// spawn a goroutine that will listen on 'IPChan'
-	c.Startup = append(c.Startup, func() error {
-		go lookup(ifconfig.Database)
-		return nil
-	})
+	// open the database to the global variable 'DB'
+	DB, err = maxminddb.Open(ifconfig.Database)
+	if err != nil {
+		return nil, err
+	}
 
 	return func(next middleware.Handler) middleware.Handler {
 		return &IPFilter{
@@ -86,11 +65,33 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 		return http.StatusInternalServerError, err
 	}
 
-	// send the IP to 'IPChan' and get the client's country from 'CCChan'
-	IPChan <- clientIP
-	clientCountry := <-CCChan
+	parsedIP := net.ParseIP(clientIP)
 
-	switch ipf.Config.Type {
+	// do the lookup
+	var result onlyCountry
+	if err = DB.Lookup(parsedIP, &result); err != nil {
+		return http.StatusInternalServerError, err
+	}
+
+	// get only the ISOCode out of the lookup results
+	clientCountry := result.Country.ISOCode
+
+	// writeBlockPage will be called in the switch statement
+	writeBlockPage := func() (int, error) {
+		bp, err := os.Open(ipf.Config.BlockPage)
+		if err != nil {
+			return http.StatusInternalServerError, err
+		}
+		defer bp.Close()
+
+		if _, err := io.Copy(w, bp); err != nil {
+			return http.StatusInternalServerError, err
+		}
+		// we wrote the blockpage, return OK
+		return http.StatusOK, nil
+	}
+
+	switch ipf.Config.Rule {
 	case "allow":
 		for _, c := range ipf.Config.CountryCodes {
 			if clientCountry == c {
@@ -99,18 +100,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 		}
 		// if we have blockpage, write it
 		if ipf.Config.BlockPage != "" {
-			bp, err := os.Open(ipf.Config.BlockPage)
-			if err != nil {
-				return http.StatusInternalServerError, err
-			}
-			defer bp.Close()
-
-			if _, err := io.Copy(w, bp); err != nil {
-				return http.StatusInternalServerError, err
-			}
-			// we wrote the blockpage, return OK
-			return http.StatusOK, nil
-
+			return writeBlockPage()
 		}
 		// if we don't have blockpage, return forbidden
 		return http.StatusForbidden, nil
@@ -120,17 +110,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 			if clientCountry == c {
 				// if we have blockpage, write it
 				if ipf.Config.BlockPage != "" {
-					bp, err := os.Open(ipf.Config.BlockPage)
-					if err != nil {
-						return http.StatusInternalServerError, err
-					}
-					defer bp.Close()
-
-					if _, err := io.Copy(w, bp); err != nil {
-						return http.StatusInternalServerError, err
-					}
-					// we wrote the blockpage, return OK
-					return http.StatusOK, nil
+					return writeBlockPage()
 				}
 				// if we don't have blockpage, return forbidden
 				return http.StatusForbidden, nil
@@ -184,13 +164,13 @@ func ipfilterParse(c *setup.Controller) (ipfconfig, error) {
 				if !c.NextArg() {
 					return config, c.ArgErr()
 				}
-				config.Type = value
+				config.Rule = value
 				config.CountryCodes = c.RemainingArgs()
 			}
 		}
 	}
 	// These two are mandatory
-	if config.Database == "" || config.Type == "" {
+	if config.Database == "" || config.Rule == "" {
 		return config, c.ArgErr()
 	}
 	return config, nil
