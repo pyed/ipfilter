@@ -19,7 +19,7 @@ type IPFilter struct {
 type ipfconfig struct {
 	PathScope    string
 	Database     string
-	BlockPage    string // optional page to write to blocked requests
+	BlockPage    string // optional page to write it to blocked requests
 	Rule         string // allow or block
 	CountryCodes []string
 }
@@ -60,11 +60,11 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 		return ipf.Next.ServeHTTP(w, r)
 	}
 
+	// extract the client's IP and parse it via the 'net' package
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
-
 	parsedIP := net.ParseIP(clientIP)
 
 	// do the lookup
@@ -94,10 +94,11 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 	switch ipf.Config.Rule {
 	case "allow":
 		for _, c := range ipf.Config.CountryCodes {
-			if clientCountry == c {
+			if clientCountry == c { // the client's country exists as allowed, pass-thru
 				return ipf.Next.ServeHTTP(w, r)
 			}
 		}
+		// the client's isn't allowed, stop it.
 		// if we have blockpage, write it
 		if ipf.Config.BlockPage != "" {
 			return writeBlockPage()
@@ -107,7 +108,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 
 	case "block":
 		for _, c := range ipf.Config.CountryCodes {
-			if clientCountry == c {
+			if clientCountry == c { // client's country exists as blokced, stop it.
 				// if we have blockpage, write it
 				if ipf.Config.BlockPage != "" {
 					return writeBlockPage()
@@ -146,7 +147,7 @@ func ipfilterParse(c *setup.Controller) (ipfconfig, error) {
 				// check if the database file exists
 				database := c.Val()
 				if _, err := os.Stat(database); os.IsNotExist(err) {
-					return config, c.Err("No such file: " + database)
+					return config, c.Err("No such database: " + database)
 				}
 				config.Database = database
 			case "blockpage":
@@ -161,11 +162,11 @@ func ipfilterParse(c *setup.Controller) (ipfconfig, error) {
 				config.BlockPage = blockpage
 
 			case "allow", "block":
-				if !c.NextArg() {
+				config.CountryCodes = c.RemainingArgs()
+				if len(config.CountryCodes) == 0 {
 					return config, c.ArgErr()
 				}
 				config.Rule = value
-				config.CountryCodes = c.RemainingArgs()
 			}
 		}
 	}
