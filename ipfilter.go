@@ -22,6 +22,7 @@ type IPFConfig struct {
 	BlockPage    string // optional page to write it to blocked requests
 	Rule         string // allow or block
 	CountryCodes []string
+	DBHandler    *maxminddb.Reader // Database's handler when it gets opened
 }
 
 // the following type is used to fetch only the country code from mmdb
@@ -31,17 +32,14 @@ type OnlyCountry struct {
 	} `maxminddb:"country"`
 }
 
-// The database will get bound to this variable
-var DB *maxminddb.Reader
-
 func Setup(c *setup.Controller) (middleware.Middleware, error) {
 	ifconfig, err := ipfilterParse(c)
 	if err != nil {
 		return nil, err
 	}
 
-	// open the database to the global variable 'DB'
-	DB, err = maxminddb.Open(ifconfig.Database)
+	// Open the database
+	ifconfig.DBHandler, err = maxminddb.Open(ifconfig.Database)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +67,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 
 	// do the lookup
 	var result OnlyCountry
-	if err = DB.Lookup(parsedIP, &result); err != nil {
+	if err = ipf.Config.DBHandler.Lookup(parsedIP, &result); err != nil {
 		return http.StatusInternalServerError, err
 	}
 
