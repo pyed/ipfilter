@@ -13,10 +13,10 @@ import (
 
 type IPFilter struct {
 	Next   middleware.Handler
-	Config ipfconfig
+	Config IPFConfig
 }
 
-type ipfconfig struct {
+type IPFConfig struct {
 	PathScope    string
 	Database     string
 	BlockPage    string // optional page to write it to blocked requests
@@ -25,7 +25,7 @@ type ipfconfig struct {
 }
 
 // the following type is used to fetch only the country code from mmdb
-type onlyCountry struct {
+type OnlyCountry struct {
 	Country struct {
 		ISOCode string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
@@ -68,7 +68,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 	parsedIP := net.ParseIP(clientIP)
 
 	// do the lookup
-	var result onlyCountry
+	var result OnlyCountry
 	if err = DB.Lookup(parsedIP, &result); err != nil {
 		return http.StatusInternalServerError, err
 	}
@@ -76,7 +76,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 	// get only the ISOCode out of the lookup results
 	clientCountry := result.Country.ISOCode
 
-	// writeBlockPage will be called in the switch statement
+	// writeBlockPage will get called in the switch statement
 	writeBlockPage := func() (int, error) {
 		bp, err := os.Open(ipf.Config.BlockPage)
 		if err != nil {
@@ -98,7 +98,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 				return ipf.Next.ServeHTTP(w, r)
 			}
 		}
-		// the client's isn't allowed, stop it.
+		// the client's country isn't allowed, stop it.
 		// if we have blockpage, write it
 		if ipf.Config.BlockPage != "" {
 			return writeBlockPage()
@@ -117,7 +117,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 				return http.StatusForbidden, nil
 			}
 		}
-		// the client isn't blocked, pass-thru
+		// the client's country isn't blocked, pass-thru
 		return ipf.Next.ServeHTTP(w, r)
 
 	default: // we have to return anyway
@@ -126,12 +126,12 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 
 }
 
-func ipfilterParse(c *setup.Controller) (ipfconfig, error) {
-	var config ipfconfig
+func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
+	var config IPFConfig
 
 	for c.Next() {
 
-		// get the pathscope
+		// get the PathScope
 		if !c.NextArg() || c.Val() == "{" {
 			return config, c.ArgErr()
 		}
