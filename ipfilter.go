@@ -11,18 +11,22 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
+// IPFilter is a middleware for filtering clients based on their country's ISO code;
+// by looking up their IPs using 'MaxMind' database.
 type IPFilter struct {
 	Next   middleware.Handler
 	Config IPFConfig
 }
 
 type IPFConfig struct {
-	PathScope    string
+	PathScopes   []string
 	Database     string
 	BlockPage    string // optional page to write it to blocked requests
 	Rule         string // allow or block
 	CountryCodes []string
-	DBHandler    *maxminddb.Reader // Database's handler when it gets opened
+
+	DBHandler     *maxminddb.Reader // Database's handler when it gets opened
+	PathScopesLen int               // len(PathScopes)
 }
 
 // the following type is used to fetch only the country code from mmdb
@@ -38,11 +42,14 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 		return nil, err
 	}
 
-	// Open the database
+	// open the database
 	ifconfig.DBHandler, err = maxminddb.Open(ifconfig.Database)
 	if err != nil {
 		return nil, err
 	}
+
+	// set the length of PathScopes
+	ifconfig.PathScopesLen = len(ifconfig.PathScopes)
 
 	return func(next middleware.Handler) middleware.Handler {
 		return &IPFilter{
@@ -53,9 +60,14 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 }
 
 func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
-	// if we are not in our scope, pass-thru
-	if !middleware.Path(r.URL.Path).Matches(ipf.Config.PathScope) {
-		return ipf.Next.ServeHTTP(w, r)
+	// if we are not in one of our scopes, pass-thru
+	for i, scope := range ipf.Config.PathScopes {
+		if middleware.Path(r.URL.Path).Matches(scope) {
+			break
+		}
+		if i == ipf.Config.PathScopesLen-1 { // if this is the last loop and we are here, pass-thru
+			return ipf.Next.ServeHTTP(w, r)
+		}
 	}
 
 	// extract the client's IP and parse it via the 'net' package
@@ -129,11 +141,8 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 
 	for c.Next() {
 
-		// get the PathScope
-		if !c.NextArg() || c.Val() == "{" {
-			return config, c.ArgErr()
-		}
-		config.PathScope = c.Val()
+		// get the PathScopes
+		config.PathScopes = c.RemainingArgs()
 
 		for c.NextBlock() {
 			value := c.Val()
@@ -168,8 +177,11 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 			}
 		}
 	}
-	// These two are mandatory
-	if config.Database == "" || config.Rule == "" {
+
+	// These are mandatory
+	if config.Database == "" ||
+		config.Rule == "" ||
+		len(config.PathScopes) == 0 {
 		return config, c.ArgErr()
 	}
 	return config, nil
