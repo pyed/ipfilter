@@ -21,12 +21,11 @@ type IPFilter struct {
 type IPFConfig struct {
 	PathScopes   []string
 	Database     string
-	BlockPage    string // optional page to write it to blocked requests
-	Rule         string // allow or block
+	BlockPage    string
+	Rule         string
 	CountryCodes []string
 
-	DBHandler     *maxminddb.Reader // Database's handler when it gets opened
-	PathScopesLen int               // len(PathScopes)
+	DBHandler *maxminddb.Reader // Database's handler when it gets opened
 }
 
 // the following type is used to fetch only the country code from mmdb
@@ -48,9 +47,6 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 		return nil, err
 	}
 
-	// set the length of PathScopes
-	ifconfig.PathScopesLen = len(ifconfig.PathScopes)
-
 	return func(next middleware.Handler) middleware.Handler {
 		return &IPFilter{
 			Next:   next,
@@ -60,80 +56,74 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 }
 
 func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
-	// if we are not in one of our scopes, pass-thru
-	for i, scope := range ipf.Config.PathScopes {
+	// check if we are in one of our scopes
+	for _, scope := range ipf.Config.PathScopes {
 		if middleware.Path(r.URL.Path).Matches(scope) {
-			break
-		}
-		if i == ipf.Config.PathScopesLen-1 { // if this is the last loop and we are here, pass-thru
-			return ipf.Next.ServeHTTP(w, r)
-		}
-	}
-
-	// extract the client's IP and parse it via the 'net' package
-	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
-	parsedIP := net.ParseIP(clientIP)
-
-	// do the lookup
-	var result OnlyCountry
-	if err = ipf.Config.DBHandler.Lookup(parsedIP, &result); err != nil {
-		return http.StatusInternalServerError, err
-	}
-
-	// get only the ISOCode out of the lookup results
-	clientCountry := result.Country.ISOCode
-
-	// writeBlockPage will get called in the switch statement
-	writeBlockPage := func() (int, error) {
-		bp, err := os.Open(ipf.Config.BlockPage)
-		if err != nil {
-			return http.StatusInternalServerError, err
-		}
-		defer bp.Close()
-
-		if _, err := io.Copy(w, bp); err != nil {
-			return http.StatusInternalServerError, err
-		}
-		// we wrote the blockpage, return OK
-		return http.StatusOK, nil
-	}
-
-	switch ipf.Config.Rule {
-	case "allow":
-		for _, c := range ipf.Config.CountryCodes {
-			if clientCountry == c { // the client's country exists as allowed, pass-thru
-				return ipf.Next.ServeHTTP(w, r)
+			// extract the client's IP and parse it via the 'net' package
+			clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				return http.StatusInternalServerError, err
 			}
-		}
-		// the client's country isn't allowed, stop it.
-		// if we have blockpage, write it
-		if ipf.Config.BlockPage != "" {
-			return writeBlockPage()
-		}
-		// if we don't have blockpage, return forbidden
-		return http.StatusForbidden, nil
+			parsedIP := net.ParseIP(clientIP)
 
-	case "block":
-		for _, c := range ipf.Config.CountryCodes {
-			if clientCountry == c { // client's country exists as blokced, stop it.
+			// do the lookup
+			var result OnlyCountry
+			if err = ipf.Config.DBHandler.Lookup(parsedIP, &result); err != nil {
+				return http.StatusInternalServerError, err
+			}
+
+			// get only the ISOCode out of the lookup results
+			clientCountry := result.Country.ISOCode
+
+			// writeBlockPage will get called in the switch statement
+			writeBlockPage := func() (int, error) {
+				bp, err := os.Open(ipf.Config.BlockPage)
+				if err != nil {
+					return http.StatusInternalServerError, err
+				}
+				defer bp.Close()
+
+				if _, err := io.Copy(w, bp); err != nil {
+					return http.StatusInternalServerError, err
+				}
+				// we wrote the blockpage, return OK
+				return http.StatusOK, nil
+			}
+
+			switch ipf.Config.Rule {
+			case "allow":
+				for _, c := range ipf.Config.CountryCodes {
+					if clientCountry == c { // the client's country exists as allowed, pass-thru
+						return ipf.Next.ServeHTTP(w, r)
+					}
+				}
+				// the client's country isn't allowed, stop it.
 				// if we have blockpage, write it
 				if ipf.Config.BlockPage != "" {
 					return writeBlockPage()
 				}
 				// if we don't have blockpage, return forbidden
 				return http.StatusForbidden, nil
+
+			case "block":
+				for _, c := range ipf.Config.CountryCodes {
+					if clientCountry == c { // client's country exists as blokced, stop it.
+						// if we have blockpage, write it
+						if ipf.Config.BlockPage != "" {
+							return writeBlockPage()
+						}
+						// if we don't have blockpage, return forbidden
+						return http.StatusForbidden, nil
+					}
+				}
+				// the client's country isn't blocked, pass-thru
+				return ipf.Next.ServeHTTP(w, r)
 			}
 		}
-		// the client's country isn't blocked, pass-thru
-		return ipf.Next.ServeHTTP(w, r)
-
-	default: // we have to return anyway
-		return ipf.Next.ServeHTTP(w, r)
 	}
 
+	// no scope match, pass-thru
+	return ipf.Next.ServeHTTP(w, r)
 }
 
 func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
