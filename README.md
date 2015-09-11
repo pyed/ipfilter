@@ -1,5 +1,3 @@
-# WARNING: UNUSABLE YET!, WORK IN PROGRESS.
-
 # ipfilter
 ipfilter is a middleware for [Caddy](http://caddyserver.com) using [MaxMindDB](https://github.com/oschwald/maxminddb-golang)
 
