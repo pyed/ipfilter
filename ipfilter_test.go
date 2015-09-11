@@ -61,7 +61,7 @@ var TestCases = []struct {
 		PathScopes:   []string{"/testdata", "/"},
 		BlockPage:    Page,
 		Rule:         Allow,
-		CountryCodes: []string{}, // Allow no one
+		CountryCodes: []string{}, // no one allowed
 	},
 		"8.8.4.4:_", // US
 		BlockMsg,
@@ -86,6 +86,16 @@ var TestCases = []struct {
 		"5.175.96.22:_", // RU
 		"",
 		http.StatusForbidden,
+	},
+
+	{IPFConfig{
+		PathScopes:   []string{"/"},
+		Rule:         Allow,
+		CountryCodes: []string{"FR", "GB", "AE", "DE"},
+	},
+		"5.4.9.3:_", // DE
+		"",
+		http.StatusOK, // Allowed
 	},
 }
 
