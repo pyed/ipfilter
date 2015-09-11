@@ -25,10 +25,10 @@ type IPFConfig struct {
 	Rule         string
 	CountryCodes []string
 
-	DBHandler *maxminddb.Reader // Database's handler when it gets opened
+	DBHandler *maxminddb.Reader // Database's handler when it get opened
 }
 
-// the following type is used to fetch only the country code from mmdb
+// the following type is used to fetch only the country's code from 'mmdb'
 type OnlyCountry struct {
 	Country struct {
 		ISOCode string `maxminddb:"iso_code"`
