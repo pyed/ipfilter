@@ -431,3 +431,32 @@ func TestIPs(t *testing.T) {
 		}
 	}
 }
+
+func TestGetClientIP(t *testing.T) {
+	req, err := http.NewRequest("GET", "/", nil)
+	if err != nil {
+		t.Fatalf("Could not create HTTP request: %v", err)
+	}
+
+	// Setting up the test data
+	remoteAddr := "8.8.4.4:12345"
+	remoteIP, _, _ := net.SplitHostPort(remoteAddr)
+	fwdFor := "8.8.8.8"
+	req.RemoteAddr = remoteAddr
+
+	// Testing 'getClientIP' should return 'fwdFor' when 'X-Forwarded-For' is defined
+	req.Header.Set("X-Forwarded-For", fwdFor)
+
+	clientIP, _ := getClientIP(req)
+	if clientIP.String() != fwdFor {
+		t.Fatalf("Expected clientIP: '%s', Got: '%s'", fwdFor, clientIP.String())
+	}
+
+	// Testing 'getClientIP' should return 'remoteIP' when 'X-Forwarded-For' is not defined
+	req.Header.Del("X-Forwarded-For")
+
+	clientIP, _ = getClientIP(req)
+	if clientIP.String() != remoteIP {
+		t.Fatalf("Expected clientIP: '%s', Got: '%s'", remoteIP, clientIP.String())
+	}
+}

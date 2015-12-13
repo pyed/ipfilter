@@ -2,6 +2,7 @@ package ipfilter
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ type IPFilter struct {
 	Config IPFConfig
 }
 
+// IPFConfig holds the configuration for the ipfilter middleware
 type IPFConfig struct {
 	PathScopes   []string
 	Rule         string
@@ -52,7 +54,7 @@ func (rng Range) InRange(ip *net.IP) bool {
 	return false
 }
 
-// the following type is used to fetch only the country's code from 'mmdb'
+// OnlyCountry is used to fetch only the country's code from 'mmdb'
 type OnlyCountry struct {
 	Country struct {
 		ISOCode string `maxminddb:"iso_code"`
@@ -79,6 +81,7 @@ func block(blockPage string, w *http.ResponseWriter) (int, error) {
 	return http.StatusForbidden, nil
 }
 
+// Setup parses the ipfilter configuration and returns the middleware handler
 func Setup(c *setup.Controller) (middleware.Middleware, error) {
 	ifconfig, err := ipfilterParse(c)
 	if err != nil {
@@ -93,16 +96,39 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 	}, nil
 }
 
+func getClientIP(r *http.Request) (net.IP, error) {
+	var ip string
+
+	// Use the client ip from the 'X-Forwarded-For' header, if available
+	if fwdFor := r.Header.Get("X-Forwarded-For"); fwdFor != "" {
+		ip = fwdFor
+	} else {
+		// Otherwise, get the client ip from the request remote address
+		var err error
+		ip, _, err = net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse the ip address string into a net.IP
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return nil, errors.New("unable to parse address")
+	}
+
+	return parsedIP, nil
+}
+
 func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	// check if we are in one of our scopes
 	for _, scope := range ipf.Config.PathScopes {
 		if middleware.Path(r.URL.Path).Matches(scope) {
 			// extract the client's IP and parse it
-			ip, _, err := net.SplitHostPort(r.RemoteAddr)
+			clientIP, err := getClientIP(r)
 			if err != nil {
 				return http.StatusInternalServerError, err
 			}
-			clientIP := net.ParseIP(ip)
 
 			if hasCountryCodes {
 				// do the lookup
@@ -117,16 +143,16 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 					if clientCountry == c {
 						if isBlock { // the rule is block and we found a match, block
 							return block(ipf.Config.BlockPage, &w)
-						} else { // the rule is allow and we found a match, allow
-							return ipf.Next.ServeHTTP(w, r)
 						}
+						// the rule is allow and we found a match, allow
+						return ipf.Next.ServeHTTP(w, r)
 					}
 				}
 				if isBlock { // the rule is block and we did not find a match, allow
 					return ipf.Next.ServeHTTP(w, r)
-				} else { // the rule is allow and we did not find a match, block
-					return block(ipf.Config.BlockPage, &w)
 				}
+				// the rule is allow and we did not find a match, block
+				return block(ipf.Config.BlockPage, &w)
 			}
 
 			if hasRanges {
@@ -134,18 +160,18 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 					if rng.InRange(&clientIP) { // if the client's ip is in range
 						if isBlock { // the rule is block and we are in range, block
 							return block(ipf.Config.BlockPage, &w)
-						} else { // the rule is allow, and we are in range, allow
-							return ipf.Next.ServeHTTP(w, r)
 						}
+						// the rule is allow, and we are in range, allow
+						return ipf.Next.ServeHTTP(w, r)
 					}
 				}
 
 				// no match in any of the ranges, so:
 				if isBlock { // the rule is block, allow
 					return ipf.Next.ServeHTTP(w, r)
-				} else { // the rule is allow, block
-					return block(ipf.Config.BlockPage, &w)
 				}
+				// the rule is allow, block
+				return block(ipf.Config.BlockPage, &w)
 			}
 
 			if hasIPs {
@@ -153,18 +179,18 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 					if ip.Equal(clientIP) { // if we have a match
 						if isBlock { // the rule is block, block it
 							return block(ipf.Config.BlockPage, &w)
-						} else { // the rule is allow, allow it
-							return ipf.Next.ServeHTTP(w, r)
 						}
+						// the rule is allow, allow it
+						return ipf.Next.ServeHTTP(w, r)
 					}
 				}
 
 				// we did not have a match
 				if isBlock { // if the rule is block, allow it
 					return ipf.Next.ServeHTTP(w, r)
-				} else { // the rule is allow, block it
-					return block(ipf.Config.BlockPage, &w)
 				}
+				// the rule is allow, block it
+				return block(ipf.Config.BlockPage, &w)
 			}
 		}
 	}
