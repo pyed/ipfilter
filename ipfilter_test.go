@@ -432,31 +432,119 @@ func TestIPs(t *testing.T) {
 	}
 }
 
-func TestGetClientIP(t *testing.T) {
-	req, err := http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Fatalf("Could not create HTTP request: %v", err)
+func TestFwdForIPs(t *testing.T) {
+	// These test cases provide test coverage for proxied requests support (Refer to https://github.com/pyed/ipfilter/pull/4)
+	TestCases := []struct {
+		ipfconf        IPFConfig
+		reqIP          string
+		fwdFor         string
+		scope          string
+		expectedStatus int
+	}{
+		// Middleware should block request when filtering rule is set to 'Block', a *blocked* IP is passed in the 'X-Forwarded-For' header and the request is coming from *permitted* remote address
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Block,
+				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+			},
+			"8.8.4.4:12345",
+			"8.8.8.8",
+			"/",
+			http.StatusForbidden,
+		},
+		// Middleware should allow request when filtering rule is set to 'Block', no IP is passed in the 'X-Forwarded-For' header and the request is coming from *permitted* remote address
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Block,
+				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+			},
+			"8.8.4.4:12345",
+			"",
+			"/",
+			http.StatusOK,
+		},
+		// Middleware should allow request when filtering rule is set to 'Block', a *permitted* IP is passed in the 'X-Forwarded-For' header and the request is coming from *blocked* remote address
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Block,
+				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+			},
+			"8.8.8.8:12345",
+			"8.8.4.4",
+			"/",
+			http.StatusOK,
+		},
+		// Middleware should allow request when filtering rule is set to 'Allow', a *permitted* IP is passed in the 'X-Forwarded-For' header and the request is coming from *blocked* remote address
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Allow,
+				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+			},
+			"8.8.4.4:12345",
+			"8.8.8.8",
+			"/",
+			http.StatusOK,
+		},
+		// Middleware should block request when filtering rule is set to 'Allow', no IP is passed in the 'X-Forwarded-For' header and the request is coming from *blocked* remote address
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Allow,
+				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+			},
+			"8.8.4.4:12345",
+			"",
+			"/",
+			http.StatusForbidden,
+		},
+		// Middleware should block request when filtering rule is set to 'Allow', a *blocked* IP is passed in the 'X-Forwarded-For' header and the request is coming from *permitted* remote address
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Allow,
+				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+			},
+			"8.8.8.8:12345",
+			"8.8.4.4",
+			"/",
+			http.StatusForbidden,
+		},
 	}
 
-	// Setting up the test data
-	remoteAddr := "8.8.4.4:12345"
-	remoteIP, _, _ := net.SplitHostPort(remoteAddr)
-	fwdFor := "8.8.8.8"
-	req.RemoteAddr = remoteAddr
+	for _, tc := range TestCases {
+		if tc.ipfconf.Rule == Block {
+			isBlock = true
+		} else {
+			isBlock = false
+		}
 
-	// Testing 'getClientIP' should return 'fwdFor' when 'X-Forwarded-For' is defined
-	req.Header.Set("X-Forwarded-For", fwdFor)
+		ipf := IPFilter{
+			Next: middleware.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+				return http.StatusOK, nil
+			}),
+			Config: tc.ipfconf,
+		}
 
-	clientIP, _ := getClientIP(req)
-	if clientIP.String() != fwdFor {
-		t.Fatalf("Expected clientIP: '%s', Got: '%s'", fwdFor, clientIP.String())
-	}
+		req, err := http.NewRequest("GET", tc.scope, nil)
+		if err != nil {
+			t.Fatalf("Could not create HTTP request: %v", err)
+		}
 
-	// Testing 'getClientIP' should return 'remoteIP' when 'X-Forwarded-For' is not defined
-	req.Header.Del("X-Forwarded-For")
+		req.RemoteAddr = tc.reqIP
+		if tc.fwdFor != "" {
+			req.Header.Set("X-Forwarded-For", tc.fwdFor)
+		}
 
-	clientIP, _ = getClientIP(req)
-	if clientIP.String() != remoteIP {
-		t.Fatalf("Expected clientIP: '%s', Got: '%s'", remoteIP, clientIP.String())
+		rec := httptest.NewRecorder()
+
+		status, _ := ipf.ServeHTTP(rec, req)
+		if status != tc.expectedStatus {
+			t.Fatalf("Expected StatusCode: '%d', Got: '%d'\nTestCase: %v\n",
+				tc.expectedStatus, status, tc)
+		}
 	}
 }
