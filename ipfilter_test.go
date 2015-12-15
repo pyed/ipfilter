@@ -279,60 +279,17 @@ func TestRanges(t *testing.T) {
 			"",
 			http.StatusForbidden,
 		},
-	}
-
-	for _, tc := range TestCases {
-		if tc.ipfconf.Rule == Block {
-			isBlock = true
-		} else {
-			isBlock = false
-		}
-
-		ipf := IPFilter{
-			Next: middleware.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
-				return http.StatusOK, nil
-			}),
-			Config: tc.ipfconf,
-		}
-		req, err := http.NewRequest("GET", tc.scope, nil)
-		if err != nil {
-			t.Fatalf("Could not create HTTP request: %v", err)
-		}
-
-		req.RemoteAddr = tc.reqIP
-
-		rec := httptest.NewRecorder()
-
-		status, _ := ipf.ServeHTTP(rec, req)
-		if status != tc.expectedStatus {
-			t.Fatalf("Expected StatusCode: '%d', Got: '%d'\nTestCase: %v\n",
-				tc.expectedStatus, status, tc)
-		}
-
-		if rec.Body.String() != tc.expectedBody {
-			t.Fatalf("Expected Body: '%s', Got: '%s'\nTestCase: %v\n",
-				tc.expectedBody, rec.Body.String(), tc)
-		}
-	}
-	// get ready for the next test
-	hasRanges = false
-}
-
-func TestIPs(t *testing.T) {
-	hasIPs = true
-
-	TestCases := []struct {
-		ipfconf        IPFConfig
-		reqIP          string
-		scope          string
-		expectedBody   string
-		expectedStatus int
-	}{
+		// From here on out, tests are covering single IP ranges
 		{IPFConfig{
 			PathScopes: []string{"/"},
 			BlockPage:  Page,
 			Rule:       Block,
-			IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+			Ranges: []Range{
+				Range{
+					net.ParseIP("8.8.8.8"),
+					net.ParseIP("8.8.8.8"),
+				},
+			},
 		},
 			"8.8.4.4:_",
 			"/",
@@ -344,7 +301,12 @@ func TestIPs(t *testing.T) {
 			PathScopes: []string{"/"},
 			BlockPage:  Page,
 			Rule:       Allow,
-			IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+			Ranges: []Range{
+				Range{
+					net.ParseIP("8.8.8.8"),
+					net.ParseIP("8.8.8.8"),
+				},
+			},
 		},
 			"8.8.4.4:_",
 			"/",
@@ -356,10 +318,19 @@ func TestIPs(t *testing.T) {
 			PathScopes: []string{"/private"},
 			BlockPage:  Page,
 			Rule:       Allow,
-			IPs: []net.IP{
-				net.ParseIP("52.9.1.2"),
-				net.ParseIP("52.9.1.3"),
-				net.ParseIP("52.9.1.4"),
+			Ranges: []Range{
+				Range{
+					net.ParseIP("52.9.1.2"),
+					net.ParseIP("52.9.1.2"),
+				},
+				Range{
+					net.ParseIP("52.9.1.3"),
+					net.ParseIP("52.9.1.3"),
+				},
+				Range{
+					net.ParseIP("52.9.1.4"),
+					net.ParseIP("52.9.1.4"),
+				},
 			},
 		},
 			"52.9.1.3:_",
@@ -372,7 +343,12 @@ func TestIPs(t *testing.T) {
 			PathScopes: []string{"/private"},
 			BlockPage:  Page,
 			Rule:       Allow,
-			IPs:        []net.IP{net.ParseIP("99.1.8.8")},
+			Ranges: []Range{
+				Range{
+					net.ParseIP("99.1.8.8"),
+					net.ParseIP("99.1.8.8"),
+				},
+			},
 		},
 			"90.90.90.90:_",
 			"/",
@@ -383,10 +359,19 @@ func TestIPs(t *testing.T) {
 		{IPFConfig{
 			PathScopes: []string{"/private"},
 			Rule:       Block,
-			IPs: []net.IP{
-				net.ParseIP("55.9.1.2"),
-				net.ParseIP("52.9.1.3"),
-				net.ParseIP("57.9.1.4"),
+			Ranges: []Range{
+				Range{
+					net.ParseIP("52.9.1.2"),
+					net.ParseIP("52.9.1.2"),
+				},
+				Range{
+					net.ParseIP("52.9.1.3"),
+					net.ParseIP("52.9.1.3"),
+				},
+				Range{
+					net.ParseIP("52.9.1.4"),
+					net.ParseIP("52.9.1.4"),
+				},
 			},
 		},
 			"52.9.1.3:_",
@@ -409,7 +394,6 @@ func TestIPs(t *testing.T) {
 			}),
 			Config: tc.ipfconf,
 		}
-
 		req, err := http.NewRequest("GET", tc.scope, nil)
 		if err != nil {
 			t.Fatalf("Could not create HTTP request: %v", err)
@@ -446,7 +430,12 @@ func TestFwdForIPs(t *testing.T) {
 			IPFConfig{
 				PathScopes: []string{"/"},
 				Rule:       Block,
-				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
 			},
 			"8.8.4.4:12345",
 			"8.8.8.8",
@@ -458,7 +447,12 @@ func TestFwdForIPs(t *testing.T) {
 			IPFConfig{
 				PathScopes: []string{"/"},
 				Rule:       Block,
-				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
 			},
 			"8.8.4.4:12345",
 			"",
@@ -470,7 +464,12 @@ func TestFwdForIPs(t *testing.T) {
 			IPFConfig{
 				PathScopes: []string{"/"},
 				Rule:       Block,
-				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
 			},
 			"8.8.8.8:12345",
 			"8.8.4.4",
@@ -482,7 +481,12 @@ func TestFwdForIPs(t *testing.T) {
 			IPFConfig{
 				PathScopes: []string{"/"},
 				Rule:       Allow,
-				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
 			},
 			"8.8.4.4:12345",
 			"8.8.8.8",
@@ -494,7 +498,12 @@ func TestFwdForIPs(t *testing.T) {
 			IPFConfig{
 				PathScopes: []string{"/"},
 				Rule:       Allow,
-				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
 			},
 			"8.8.4.4:12345",
 			"",
@@ -506,7 +515,12 @@ func TestFwdForIPs(t *testing.T) {
 			IPFConfig{
 				PathScopes: []string{"/"},
 				Rule:       Allow,
-				IPs:        []net.IP{net.ParseIP("8.8.8.8")},
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
 			},
 			"8.8.8.8:12345",
 			"8.8.4.4",
