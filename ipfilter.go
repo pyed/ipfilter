@@ -27,7 +27,6 @@ type IPFConfig struct {
 	BlockPage    string
 	CountryCodes []string
 	Ranges       []Range
-	IPs          []net.IP
 
 	DBHandler *maxminddb.Reader // Database's handler if it gets opened
 }
@@ -36,7 +35,6 @@ type IPFConfig struct {
 var (
 	hasCountryCodes bool
 	hasRanges       bool
-	hasIPs          bool
 	isBlock         bool // true if the rule is 'block'
 )
 
@@ -173,25 +171,6 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 				// the rule is allow, block
 				return block(ipf.Config.BlockPage, &w)
 			}
-
-			if hasIPs {
-				for _, ip := range ipf.Config.IPs { // go through the IPs
-					if ip.Equal(clientIP) { // if we have a match
-						if isBlock { // the rule is block, block it
-							return block(ipf.Config.BlockPage, &w)
-						}
-						// the rule is allow, allow it
-						return ipf.Next.ServeHTTP(w, r)
-					}
-				}
-
-				// we did not have a match
-				if isBlock { // if the rule is block, allow it
-					return ipf.Next.ServeHTTP(w, r)
-				}
-				// the rule is allow, block it
-				return block(ipf.Config.BlockPage, &w)
-			}
 		}
 	}
 
@@ -296,8 +275,7 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 					if parsedIP.To4() == nil {
 						return config, c.Err("ipfilter: Can't parse IPv4 address")
 					}
-					config.IPs = append(config.IPs, parsedIP)
-					hasIPs = true
+					config.Ranges = append(config.Ranges, Range{parsedIP, parsedIP})
 				}
 			}
 		}
@@ -309,7 +287,7 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 	}
 
 	// needs atleast one of the three
-	if !hasCountryCodes && !hasRanges && !hasIPs {
+	if !hasCountryCodes && !hasRanges {
 		return config, c.Err("ipfilter: No IPs or Country codes has been provided")
 	}
 	return config, nil
