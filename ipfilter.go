@@ -59,6 +59,16 @@ type OnlyCountry struct {
 	} `maxminddb:"country"`
 }
 
+// status is used to keep track of the status of the request
+type Status struct {
+	countryMatch, inRange bool
+}
+
+// method of Status, returns 'true' if any of the two is true
+func (s *Status) Any() bool {
+	return s.countryMatch || s.inRange
+}
+
 // block will take care of blocking
 func block(blockPage string, w *http.ResponseWriter) (int, error) {
 	if blockPage != "" {
@@ -128,6 +138,9 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 				return http.StatusInternalServerError, err
 			}
 
+			// request status
+			var rs Status
+
 			if hasCountryCodes {
 				// do the lookup
 				var result OnlyCountry
@@ -137,43 +150,37 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 
 				// get only the ISOCode out of the lookup results
 				clientCountry := result.Country.ISOCode
-				for _, c := range ipf.Config.CountryCodes { // go through the provided codes looking for a match
+				for _, c := range ipf.Config.CountryCodes {
 					if clientCountry == c {
-						if isBlock { // the rule is block and we found a match, block
-							return block(ipf.Config.BlockPage, &w)
-						}
-						// the rule is allow and we found a match, allow
-						return ipf.Next.ServeHTTP(w, r)
+						rs.countryMatch = true
+						break
 					}
 				}
-				if isBlock { // the rule is block and we did not find a match, allow
-					return ipf.Next.ServeHTTP(w, r)
-				}
-				// the rule is allow and we did not find a match, block
-				return block(ipf.Config.BlockPage, &w)
 			}
 
 			if hasRanges {
-				for _, rng := range ipf.Config.Ranges { // go through ranges
-					if rng.InRange(&clientIP) { // if the client's ip is in range
-						if isBlock { // the rule is block and we are in range, block
-							return block(ipf.Config.BlockPage, &w)
-						}
-						// the rule is allow, and we are in range, allow
-						return ipf.Next.ServeHTTP(w, r)
+				for _, rng := range ipf.Config.Ranges {
+					if rng.InRange(&clientIP) {
+						rs.inRange = true
+						break
 					}
 				}
-
-				// no match in any of the ranges, so:
-				if isBlock { // the rule is block, allow
-					return ipf.Next.ServeHTTP(w, r)
-				}
-				// the rule is allow, block
-				return block(ipf.Config.BlockPage, &w)
 			}
+
+			if rs.Any() {
+				if isBlock { // if the rule is block and we have a true in our status, block
+					return block(ipf.Config.BlockPage, &w)
+				}
+				// the rule is allow, and we have a true in our status, allow
+				return ipf.Next.ServeHTTP(w, r)
+			}
+			if isBlock { // the rule is block and we have no trues in status, allow
+				return ipf.Next.ServeHTTP(w, r)
+			}
+			// the rule is allow, and we have no trues in status, block
+			return block(ipf.Config.BlockPage, &w)
 		}
 	}
-
 	// no scope match, pass-thru
 	return ipf.Next.ServeHTTP(w, r)
 }
@@ -275,7 +282,9 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 					if parsedIP.To4() == nil {
 						return config, c.Err("ipfilter: Can't parse IPv4 address")
 					}
+					// append singular IPs as a range e.g Range{192.168.1.100, 192.168.1.100}
 					config.Ranges = append(config.Ranges, Range{parsedIP, parsedIP})
+					hasRanges = true
 				}
 			}
 		}
