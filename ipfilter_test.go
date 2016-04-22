@@ -562,3 +562,102 @@ func TestFwdForIPs(t *testing.T) {
 		}
 	}
 }
+
+func TestStrict(t *testing.T) {
+	TestCases := []struct {
+		ipfconf        IPFConfig
+		reqIP          string
+		fwdFor         string
+		scope          string
+		expectedStatus int
+		strict         bool
+	}{
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Block,
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
+			},
+			"8.8.4.4:12345",
+			"8.8.8.8",
+			"/",
+			http.StatusOK,
+			true,
+		},
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Block,
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
+			},
+			"8.8.8.8:12345",
+			"8.8.8.8",
+			"/",
+			http.StatusForbidden,
+			true,
+		},
+		{
+			IPFConfig{
+				PathScopes: []string{"/"},
+				Rule:       Block,
+				Ranges: []Range{
+					Range{
+						net.ParseIP("8.8.8.8"),
+						net.ParseIP("8.8.8.8"),
+					},
+				},
+			},
+			"8.8.4.4:12345",
+			"8.8.8.8",
+			"/",
+			http.StatusForbidden,
+			false,
+		},
+	}
+
+	for _, tc := range TestCases {
+		if tc.ipfconf.Rule == Block {
+			isBlock = true
+		} else {
+			isBlock = false
+		}
+
+		// set the strict flag
+		strict = tc.strict
+
+		ipf := IPFilter{
+			Next: middleware.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+				return http.StatusOK, nil
+			}),
+			Config: tc.ipfconf,
+		}
+
+		req, err := http.NewRequest("GET", tc.scope, nil)
+		if err != nil {
+			t.Fatalf("Could not create HTTP request: %v", err)
+		}
+
+		req.RemoteAddr = tc.reqIP
+		if tc.fwdFor != "" {
+			req.Header.Set("X-Forwarded-For", tc.fwdFor)
+		}
+
+		rec := httptest.NewRecorder()
+
+		status, _ := ipf.ServeHTTP(rec, req)
+		if status != tc.expectedStatus {
+			t.Fatalf("Expected StatusCode: '%d', Got: '%d'\nTestCase: %v\n",
+				tc.expectedStatus, status, tc)
+		}
+	}
+}
