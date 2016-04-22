@@ -36,6 +36,7 @@ var (
 	hasCountryCodes bool
 	hasRanges       bool
 	isBlock         bool // true if the rule is 'block'
+	strict          bool
 )
 
 // Range is a pair of two 'net.IP'
@@ -108,7 +109,7 @@ func getClientIP(r *http.Request) (net.IP, error) {
 	var ip string
 
 	// Use the client ip from the 'X-Forwarded-For' header, if available
-	if fwdFor := r.Header.Get("X-Forwarded-For"); fwdFor != "" {
+	if fwdFor := r.Header.Get("X-Forwarded-For"); fwdFor != "" && !strict {
 		ip = fwdFor
 	} else {
 		// Otherwise, get the client ip from the request remote address
@@ -286,6 +287,9 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 					config.Ranges = append(config.Ranges, Range{parsedIP, parsedIP})
 					hasRanges = true
 				}
+
+			case "strict":
+				strict = true
 			}
 		}
 	}
