@@ -7,10 +7,10 @@ ipfilter is a middleware for [Caddy](http://caddyserver.com)
 ```
 ipfilter / {
 	rule block
-	ip 212.42.10.50-100 213.42.9.10-50 214.1.1.10
+	ip 192.168 213.42.9.10-50 214.1.1.10
 }
 ```
-`caddy` will block any clients with IPs that fall into one of these two ranges `212.42.10.50-100`, `213.42.9.10-50` , or a client that has an IP of `214.1.1.10` explicitly, ranges are inclusive, which means `212.42.10.100` will get blocked.
+`caddy` will block any clients with IPs that fall into one of these two ranges `192.168.0.0` to `192.168.255.255` and `213.42.9.10` to `213.42.9.50` , or a client that has an IP of `214.1.1.10` explicitly, ranges are inclusive, which means `213.42.9.50` will get blocked.
 
 ```
 ipfilter / {

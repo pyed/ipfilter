@@ -252,6 +252,26 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 				}
 
 				for _, ip := range ips {
+					// check if the ip isn't complete;
+					// e.g. 192.168 -> Range{"192.168.0.0", "192.168.255.255"}
+					dotSplit := strings.Split(ip, ".")
+					if len(dotSplit) < 4 {
+						startR := make([]string, len(dotSplit), 4)
+						copy(startR, dotSplit)
+						for len(dotSplit) < 4 {
+							startR = append(startR, "0")
+							dotSplit = append(dotSplit, "255")
+						}
+						start := net.ParseIP(strings.Join(startR, "."))
+						end := net.ParseIP(strings.Join(dotSplit, "."))
+						if start.To4() == nil || end.To4() == nil {
+							return config, c.Err("ipfilter: Can't parse IPv4 address")
+						}
+						config.Ranges = append(config.Ranges, Range{start, end})
+						hasRanges = true
+						continue
+					}
+
 					// try to split on '-' to see if it is a range of ips e.g. 1.1.1.1-10
 					splitted := strings.Split(ip, "-")
 					if len(splitted) > 1 { // if more than one, then we got a range e.g. ["1.1.1.1", "10"]
