@@ -1,11 +1,15 @@
 package ipfilter
 
 import (
+	"bytes"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
+	"github.com/mholt/caddy/caddy/setup"
 	"github.com/mholt/caddy/middleware"
 	"github.com/oschwald/maxminddb-golang"
 )
@@ -13,11 +17,11 @@ import (
 const (
 	// 'GeoLite2.mmdb' taken from 'MaxMind.com'
 	// 'https://dev.maxmind.com/geoip/geoip2/geolite2/'
-	DataBase = "./testdata/GeoLite2.mmdb"
-	Page     = "./testdata/blockpage.html"
-	Allow    = "allow"
-	Block    = "block"
-	BlockMsg = "You are not allowed here"
+	DataBase  = "./testdata/GeoLite2.mmdb"
+	BlockPage = "./testdata/blockpage.html"
+	Allow     = "allow"
+	Block     = "block"
+	BlockMsg  = "You are not allowed here"
 )
 
 func TestCountryCodes(t *testing.T) {
@@ -32,7 +36,7 @@ func TestCountryCodes(t *testing.T) {
 	}{
 		{IPFConfig{
 			PathScopes:   []string{"/"},
-			BlockPage:    Page,
+			BlockPage:    BlockPage,
 			Rule:         Allow,
 			CountryCodes: []string{"JP", "SA"},
 		},
@@ -44,7 +48,7 @@ func TestCountryCodes(t *testing.T) {
 
 		{IPFConfig{
 			PathScopes:   []string{"/private"},
-			BlockPage:    Page,
+			BlockPage:    BlockPage,
 			Rule:         Block,
 			CountryCodes: []string{"US", "CA"},
 		},
@@ -158,7 +162,7 @@ func TestRanges(t *testing.T) {
 	}{
 		{IPFConfig{
 			PathScopes: []string{"/"},
-			BlockPage:  Page,
+			BlockPage:  BlockPage,
 			Rule:       Block,
 			Ranges: []Range{
 				Range{
@@ -175,7 +179,7 @@ func TestRanges(t *testing.T) {
 
 		{IPFConfig{
 			PathScopes: []string{"/private"},
-			BlockPage:  Page,
+			BlockPage:  BlockPage,
 			Rule:       Block,
 			Ranges: []Range{
 				Range{
@@ -196,7 +200,7 @@ func TestRanges(t *testing.T) {
 
 		{IPFConfig{
 			PathScopes: []string{"/"},
-			BlockPage:  Page,
+			BlockPage:  BlockPage,
 			Rule:       Block,
 			Ranges: []Range{
 				Range{
@@ -213,7 +217,7 @@ func TestRanges(t *testing.T) {
 
 		{IPFConfig{
 			PathScopes: []string{"/eighties"},
-			BlockPage:  Page,
+			BlockPage:  BlockPage,
 			Rule:       Allow,
 			Ranges: []Range{
 				Range{
@@ -282,7 +286,7 @@ func TestRanges(t *testing.T) {
 		// From here on out, tests are covering single IP ranges
 		{IPFConfig{
 			PathScopes: []string{"/"},
-			BlockPage:  Page,
+			BlockPage:  BlockPage,
 			Rule:       Block,
 			Ranges: []Range{
 				Range{
@@ -299,7 +303,7 @@ func TestRanges(t *testing.T) {
 
 		{IPFConfig{
 			PathScopes: []string{"/"},
-			BlockPage:  Page,
+			BlockPage:  BlockPage,
 			Rule:       Allow,
 			Ranges: []Range{
 				Range{
@@ -316,7 +320,7 @@ func TestRanges(t *testing.T) {
 
 		{IPFConfig{
 			PathScopes: []string{"/private"},
-			BlockPage:  Page,
+			BlockPage:  BlockPage,
 			Rule:       Allow,
 			Ranges: []Range{
 				Range{
@@ -341,7 +345,7 @@ func TestRanges(t *testing.T) {
 
 		{IPFConfig{
 			PathScopes: []string{"/private"},
-			BlockPage:  Page,
+			BlockPage:  BlockPage,
 			Rule:       Allow,
 			Ranges: []Range{
 				Range{
@@ -660,4 +664,154 @@ func TestStrict(t *testing.T) {
 				tc.expectedStatus, status, tc)
 		}
 	}
+}
+
+func TestIpfilterParse(t *testing.T) {
+	tests := []struct {
+		inputIpfilterConfig string
+		shouldErr           bool
+		expectedConfig      IPFConfig
+	}{
+		{`ipfilter / {
+			rule allow
+			ip 10.0.0.1
+			}`, false, IPFConfig{
+			PathScopes: []string{"/"},
+			Rule:       Allow,
+			Ranges: []Range{
+				{net.ParseIP("10.0.0.1"), net.ParseIP("10.0.0.1")},
+			},
+		}},
+		{fmt.Sprintf(`ipfilter /blog /local {
+			rule block
+			ip 10.0.0.1-150 20.0.0.1-255 30.0.0.2
+			blockpage %s
+			}`, BlockPage), false, IPFConfig{
+			PathScopes: []string{"/blog", "/local"},
+			Rule:       Block,
+			BlockPage:  BlockPage,
+			Ranges: []Range{
+				{net.ParseIP("10.0.0.1"), net.ParseIP("10.0.0.150")},
+				{net.ParseIP("20.0.0.1"), net.ParseIP("20.0.0.255")},
+				{net.ParseIP("30.0.0.2"), net.ParseIP("30.0.0.2")},
+			},
+		}},
+		{`ipfilter / {
+			rule allow
+			ip 192.168 10.0.0.20-25 8.8.4.4 182 0
+			}`, false, IPFConfig{
+			PathScopes: []string{"/"},
+			Rule:       Allow,
+			Ranges: []Range{
+				{net.ParseIP("192.168.0.0"), net.ParseIP("192.168.255.255")},
+				{net.ParseIP("10.0.0.20"), net.ParseIP("10.0.0.25")},
+				{net.ParseIP("8.8.4.4"), net.ParseIP("8.8.4.4")},
+				{net.ParseIP("182.0.0.0"), net.ParseIP("182.255.255.255")},
+				{net.ParseIP("0.0.0.0"), net.ParseIP("0.255.255.255")},
+			},
+		}},
+		{fmt.Sprintf(`ipfilter /private /blog /local {
+			rule block
+			ip 11.10.12 192.168.8.4-50 20.20.20.20 255 8.8.8.8
+			country US JP RU FR
+			database %s
+			blockpage %s
+			}`, DataBase, BlockPage), false, IPFConfig{
+			PathScopes:   []string{"/private", "/blog", "/local"},
+			Rule:         Block,
+			BlockPage:    BlockPage,
+			CountryCodes: []string{"US", "JP", "RU", "FR"},
+			Ranges: []Range{
+				{net.ParseIP("11.10.12.0"), net.ParseIP("11.10.12.255")},
+				{net.ParseIP("192.168.8.4"), net.ParseIP("192.168.8.50")},
+				{net.ParseIP("20.20.20.20"), net.ParseIP("20.20.20.20")},
+				{net.ParseIP("255.0.0.0"), net.ParseIP("255.255.255.255")},
+				{net.ParseIP("8.8.8.8"), net.ParseIP("8.8.8.8")},
+			},
+			DBHandler: &maxminddb.Reader{},
+		}},
+		{`ipfilter / {
+			rule allow
+			ip 11.
+			}`, true, IPFConfig{
+			PathScopes: []string{"/"},
+			Rule:       Allow,
+		},
+		},
+		{`ipfilter / {
+			rule allow
+			ip 192.168.1.10-
+			}`, true, IPFConfig{
+			PathScopes: []string{"/"},
+			Rule:       Allow,
+		},
+		},
+		{`ipfilter / {
+			rule allow
+			ip 192.168.1.10- 20.20.20.20
+			}`, true, IPFConfig{
+			PathScopes: []string{"/"},
+			Rule:       Allow,
+		},
+		},
+	}
+
+	for i, test := range tests {
+		c := setup.NewTestController(test.inputIpfilterConfig)
+		actualConfig, err := ipfilterParse(c)
+
+		if err == nil && test.shouldErr {
+			t.Errorf("Test %d didn't error, but it should have", i)
+		} else if err != nil && !test.shouldErr {
+			t.Errorf("Test %d errored, but it shouldn't have; got: '%v'", i, err)
+		}
+
+		// PathScopes
+		if !reflect.DeepEqual(actualConfig.PathScopes, test.expectedConfig.PathScopes) {
+			t.Errorf("Test %d expected 'PathScopes': %v got: %v",
+				i, test.expectedConfig.PathScopes, actualConfig.PathScopes)
+		}
+
+		// Rule
+		if actualConfig.Rule != test.expectedConfig.Rule {
+			t.Errorf("Test %d expected 'Rule': %s, got: %s",
+				i, test.expectedConfig.Rule, actualConfig.Rule)
+		}
+
+		// BlockPage
+		if actualConfig.BlockPage != test.expectedConfig.BlockPage {
+			t.Errorf("Test %d expected 'BlockPage': %s got: %s",
+				i, test.expectedConfig.BlockPage, actualConfig.BlockPage)
+		}
+
+		// CountryCodes
+		if !reflect.DeepEqual(actualConfig.CountryCodes, test.expectedConfig.CountryCodes) {
+			t.Errorf("Test %d expected 'CountryCodes': %v got: %v",
+				i, test.expectedConfig.CountryCodes, actualConfig.CountryCodes)
+		}
+
+		// Ranges
+		if !reflect.DeepEqual(actualConfig.Ranges, test.expectedConfig.Ranges) {
+			t.Errorf("Test %d expected 'Ranges': %s\ngot: %s",
+				i, prettyPrintRanges(test.expectedConfig.Ranges), prettyPrintRanges(actualConfig.Ranges))
+		}
+
+		// DBHandler
+		if actualConfig.DBHandler == nil && test.expectedConfig.DBHandler != nil {
+			t.Errorf("Test %d expected 'DBHandler' to NOT be a nil, got a non-nil", i)
+		}
+		if actualConfig.DBHandler != nil && test.expectedConfig.DBHandler == nil {
+			t.Errorf("Test %d expected 'DBHandler' to be nil, it is not", i)
+		}
+
+	}
+}
+
+// helps printRanges for the Ranges tests
+func prettyPrintRanges(ranges []Range) string {
+	buf := new(bytes.Buffer)
+	for _, r := range ranges {
+		buf.WriteString(fmt.Sprintf("[%s - %s] ", r.start.String(), r.end.String()))
+	}
+	return buf.String()
 }
