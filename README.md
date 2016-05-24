@@ -1,4 +1,6 @@
 # ipfilter
+[![Go Report Card](https://goreportcard.com/badge/pyed/ipfilter)](https://goreportcard.com/report/pyed/ipfilter)
+
 ipfilter is a middleware for [Caddy](http://caddyserver.com)
 
 # Caddyfile examples
