@@ -14,13 +14,13 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
-// IPFilter is a middleware for filtering clients based on their ip or country's ISO code;
+// IPFilter is a middleware for filtering clients based on their ip or country's ISO code.
 type IPFilter struct {
 	Next   middleware.Handler
 	Config IPFConfig
 }
 
-// IPFConfig holds the configuration for the ipfilter middleware
+// IPFConfig holds the configuration for the ipfilter middleware.
 type IPFConfig struct {
 	PathScopes   []string
 	Rule         string
@@ -28,24 +28,23 @@ type IPFConfig struct {
 	CountryCodes []string
 	Ranges       []Range
 
-	DBHandler *maxminddb.Reader // Database's handler if it gets opened
+	DBHandler *maxminddb.Reader // Database's handler if it gets opened.
 }
 
-// to ease if-statments, and not over-use len()
 var (
 	hasCountryCodes bool
 	hasRanges       bool
-	isBlock         bool // true if the rule is 'block'
+	isBlock         bool
 	strict          bool
 )
 
-// Range is a pair of two 'net.IP'
+// Range is a pair of two 'net.IP'.
 type Range struct {
 	start net.IP
 	end   net.IP
 }
 
-// InRange is a method of 'Range' takes a pointer to net.IP, returns true if in range, false otherwise
+// InRange is a method of 'Range' takes a pointer to net.IP, returns true if in range, false otherwise.
 func (rng Range) InRange(ip *net.IP) bool {
 	if bytes.Compare(*ip, rng.start) >= 0 && bytes.Compare(*ip, rng.end) <= 0 {
 		return true
@@ -53,19 +52,19 @@ func (rng Range) InRange(ip *net.IP) bool {
 	return false
 }
 
-// OnlyCountry is used to fetch only the country's code from 'mmdb'
+// OnlyCountry is used to fetch only the country's code from 'mmdb'.
 type OnlyCountry struct {
 	Country struct {
 		ISOCode string `maxminddb:"iso_code"`
 	} `maxminddb:"country"`
 }
 
-// status is used to keep track of the status of the request
+// Status is used to keep track of the status of the request.
 type Status struct {
 	countryMatch, inRange bool
 }
 
-// method of Status, returns 'true' if any of the two is true
+// Any returns 'true' if we have a match on a country code or an IP in range.
 func (s *Status) Any() bool {
 	return s.countryMatch || s.inRange
 }
@@ -82,15 +81,15 @@ func block(blockPage string, w *http.ResponseWriter) (int, error) {
 		if _, err := io.Copy(*w, bp); err != nil {
 			return http.StatusInternalServerError, err
 		}
-		// we wrote the blockpage, return OK
+		// we wrote the blockpage, return OK.
 		return http.StatusOK, nil
 	}
 
-	// if we don't have blockpage, return forbidden
+	// if we don't have blockpage, return forbidden.
 	return http.StatusForbidden, nil
 }
 
-// Setup parses the ipfilter configuration and returns the middleware handler
+// Setup parses the ipfilter configuration and returns the middleware handler.
 func Setup(c *setup.Controller) (middleware.Middleware, error) {
 	ifconfig, err := ipfilterParse(c)
 	if err != nil {
@@ -108,11 +107,11 @@ func Setup(c *setup.Controller) (middleware.Middleware, error) {
 func getClientIP(r *http.Request) (net.IP, error) {
 	var ip string
 
-	// Use the client ip from the 'X-Forwarded-For' header, if available
+	// Use the client ip from the 'X-Forwarded-For' header, if available.
 	if fwdFor := r.Header.Get("X-Forwarded-For"); fwdFor != "" && !strict {
 		ip = fwdFor
 	} else {
-		// Otherwise, get the client ip from the request remote address
+		// Otherwise, get the client ip from the request remote address.
 		var err error
 		ip, _, err = net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
@@ -120,7 +119,7 @@ func getClientIP(r *http.Request) (net.IP, error) {
 		}
 	}
 
-	// Parse the ip address string into a net.IP
+	// Parse the ip address string into a net.IP.
 	parsedIP := net.ParseIP(ip)
 	if parsedIP == nil {
 		return nil, errors.New("unable to parse address")
@@ -130,26 +129,26 @@ func getClientIP(r *http.Request) (net.IP, error) {
 }
 
 func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
-	// check if we are in one of our scopes
+	// check if we are in one of our scopes.
 	for _, scope := range ipf.Config.PathScopes {
 		if middleware.Path(r.URL.Path).Matches(scope) {
-			// extract the client's IP and parse it
+			// extract the client's IP and parse it.
 			clientIP, err := getClientIP(r)
 			if err != nil {
 				return http.StatusInternalServerError, err
 			}
 
-			// request status
+			// request status.
 			var rs Status
 
 			if hasCountryCodes {
-				// do the lookup
+				// do the lookup.
 				var result OnlyCountry
 				if err = ipf.Config.DBHandler.Lookup(clientIP, &result); err != nil {
 					return http.StatusInternalServerError, err
 				}
 
-				// get only the ISOCode out of the lookup results
+				// get only the ISOCode out of the lookup results.
 				clientCountry := result.Country.ISOCode
 				for _, c := range ipf.Config.CountryCodes {
 					if clientCountry == c {
@@ -169,20 +168,20 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 			}
 
 			if rs.Any() {
-				if isBlock { // if the rule is block and we have a true in our status, block
+				if isBlock { // if the rule is block and we have a true in our status, block.
 					return block(ipf.Config.BlockPage, &w)
 				}
-				// the rule is allow, and we have a true in our status, allow
+				// the rule is allow, and we have a true in our status, allow.
 				return ipf.Next.ServeHTTP(w, r)
 			}
-			if isBlock { // the rule is block and we have no trues in status, allow
+			if isBlock { // the rule is block and we have no trues in status, allow.
 				return ipf.Next.ServeHTTP(w, r)
 			}
-			// the rule is allow, and we have no trues in status, block
+			// the rule is allow, and we have no trues in status, block.
 			return block(ipf.Config.BlockPage, &w)
 		}
 	}
-	// no scope match, pass-thru
+	// no scope match, pass-through.
 	return ipf.Next.ServeHTTP(w, r)
 }
 
@@ -191,7 +190,7 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 
 	for c.Next() {
 
-		// get the PathScopes
+		// get the PathScopes.
 		config.PathScopes = c.RemainingArgs()
 		if len(config.PathScopes) == 0 {
 			return config, c.ArgErr()
@@ -219,7 +218,7 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 				}
 				database := c.Val()
 
-				// open the database
+				// open the database.
 				var err error
 				config.DBHandler, err = maxminddb.Open(database)
 				if err != nil {
@@ -231,7 +230,7 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 					return config, c.ArgErr()
 				}
 
-				// check if blockpage exists
+				// check if blockpage exists.
 				blockpage := c.Val()
 				if _, err := os.Stat(blockpage); os.IsNotExist(err) {
 					return config, c.Err("ipfilter: No such file: " + blockpage)
@@ -276,7 +275,7 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 					splitted := strings.Split(ip, "-")
 					if len(splitted) > 1 { // if more than one, then we got a range e.g. ["1.1.1.1", "10"]
 						start := net.ParseIP(splitted[0])
-						// make sure that we got a valid IPv4 IP
+						// make sure that we got a valid IPv4 IP.
 						if start.To4() == nil {
 							return config, c.Err("ipfilter: Can't parse IPv4 address")
 						}
@@ -286,19 +285,19 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 						fields[3] = splitted[1]
 						end := net.ParseIP(strings.Join(fields, "."))
 
-						// parse the end range
+						// parse the end range.
 						if end.To4() == nil {
 							return config, c.Err("ipfilter: Can't parse IPv4 address")
 						}
 
-						// append to ranges, continue the loop
+						// append to ranges, continue the loop.
 						config.Ranges = append(config.Ranges, Range{start, end})
 						hasRanges = true
 						continue
 
 					}
 
-					// the IP is not a range
+					// the IP is not a range.
 					parsedIP := net.ParseIP(ip)
 					if parsedIP.To4() == nil {
 						return config, c.Err("ipfilter: Can't parse IPv4 address")
@@ -314,12 +313,12 @@ func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
 		}
 	}
 
-	// having a databse is mandatory if you are blocking by country codes
+	// having a databse is mandatory if you are blocking by country codes.
 	if hasCountryCodes && config.DBHandler == nil {
 		return config, c.Err("ipfilter: Database is required to block/allow by country")
 	}
 
-	// needs atleast one of the three
+	// needs atleast one of the three.
 	if !hasCountryCodes && !hasRanges {
 		return config, c.Err("ipfilter: No IPs or Country codes has been provided")
 	}

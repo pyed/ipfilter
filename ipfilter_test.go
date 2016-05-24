@@ -165,7 +165,7 @@ func TestRanges(t *testing.T) {
 			BlockPage:  BlockPage,
 			Rule:       Block,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("243.1.3.10"),
 					net.ParseIP("243.1.3.20"),
 				},
@@ -182,11 +182,11 @@ func TestRanges(t *testing.T) {
 			BlockPage:  BlockPage,
 			Rule:       Block,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("243.1.3.10"),
 					net.ParseIP("243.1.3.20"),
 				},
-				Range{
+				{
 					net.ParseIP("202.33.44.1"),
 					net.ParseIP("202.33.44.255"),
 				},
@@ -203,7 +203,7 @@ func TestRanges(t *testing.T) {
 			BlockPage:  BlockPage,
 			Rule:       Block,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("243.1.3.10"),
 					net.ParseIP("243.1.3.20"),
 				},
@@ -220,11 +220,11 @@ func TestRanges(t *testing.T) {
 			BlockPage:  BlockPage,
 			Rule:       Allow,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("243.1.3.10"),
 					net.ParseIP("243.1.3.20"),
 				},
-				Range{
+				{
 					net.ParseIP("80.0.0.0"),
 					net.ParseIP("80.255.255.255"),
 				},
@@ -240,11 +240,11 @@ func TestRanges(t *testing.T) {
 			PathScopes: []string{"/eighties"},
 			Rule:       Block,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("243.1.3.10"),
 					net.ParseIP("243.1.3.20"),
 				},
-				Range{
+				{
 					net.ParseIP("80.0.0.0"),
 					net.ParseIP("80.255.255.255"),
 				},
@@ -260,19 +260,19 @@ func TestRanges(t *testing.T) {
 			PathScopes: []string{"/"},
 			Rule:       Block,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("243.1.3.10"),
 					net.ParseIP("243.1.3.20"),
 				},
-				Range{
+				{
 					net.ParseIP("80.0.0.0"),
 					net.ParseIP("80.255.255.255"),
 				},
-				Range{
+				{
 					net.ParseIP("23.1.3.1"),
 					net.ParseIP("23.1.3.20"),
 				},
-				Range{
+				{
 					net.ParseIP("85.0.0.0"),
 					net.ParseIP("85.255.255.255"),
 				},
@@ -289,7 +289,7 @@ func TestRanges(t *testing.T) {
 			BlockPage:  BlockPage,
 			Rule:       Block,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("8.8.8.8"),
 					net.ParseIP("8.8.8.8"),
 				},
@@ -306,7 +306,7 @@ func TestRanges(t *testing.T) {
 			BlockPage:  BlockPage,
 			Rule:       Allow,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("8.8.8.8"),
 					net.ParseIP("8.8.8.8"),
 				},
@@ -323,15 +323,15 @@ func TestRanges(t *testing.T) {
 			BlockPage:  BlockPage,
 			Rule:       Allow,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("52.9.1.2"),
 					net.ParseIP("52.9.1.2"),
 				},
-				Range{
+				{
 					net.ParseIP("52.9.1.3"),
 					net.ParseIP("52.9.1.3"),
 				},
-				Range{
+				{
 					net.ParseIP("52.9.1.4"),
 					net.ParseIP("52.9.1.4"),
 				},
@@ -348,7 +348,7 @@ func TestRanges(t *testing.T) {
 			BlockPage:  BlockPage,
 			Rule:       Allow,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("99.1.8.8"),
 					net.ParseIP("99.1.8.8"),
 				},
@@ -364,15 +364,15 @@ func TestRanges(t *testing.T) {
 			PathScopes: []string{"/private"},
 			Rule:       Block,
 			Ranges: []Range{
-				Range{
+				{
 					net.ParseIP("52.9.1.2"),
 					net.ParseIP("52.9.1.2"),
 				},
-				Range{
+				{
 					net.ParseIP("52.9.1.3"),
 					net.ParseIP("52.9.1.3"),
 				},
-				Range{
+				{
 					net.ParseIP("52.9.1.4"),
 					net.ParseIP("52.9.1.4"),
 				},
@@ -435,7 +435,7 @@ func TestFwdForIPs(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Block,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
@@ -452,7 +452,7 @@ func TestFwdForIPs(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Block,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
@@ -469,7 +469,7 @@ func TestFwdForIPs(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Block,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
@@ -486,7 +486,7 @@ func TestFwdForIPs(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Allow,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
@@ -503,7 +503,7 @@ func TestFwdForIPs(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Allow,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
@@ -520,7 +520,7 @@ func TestFwdForIPs(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Allow,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
@@ -581,7 +581,7 @@ func TestStrict(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Block,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
@@ -598,7 +598,7 @@ func TestStrict(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Block,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
@@ -615,7 +615,7 @@ func TestStrict(t *testing.T) {
 				PathScopes: []string{"/"},
 				Rule:       Block,
 				Ranges: []Range{
-					Range{
+					{
 						net.ParseIP("8.8.8.8"),
 						net.ParseIP("8.8.8.8"),
 					},
