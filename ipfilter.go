@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/mholt/caddy"
@@ -20,23 +21,21 @@ type IPFilter struct {
 	Config IPFConfig
 }
 
-// IPFConfig holds the configuration for the ipfilter middleware.
-type IPFConfig struct {
+// IPPath holds the configuration of a single ipfilter block.
+type IPPath struct {
 	PathScopes   []string
-	Rule         string
 	BlockPage    string
 	CountryCodes []string
 	Ranges       []Range
-
-	DBHandler *maxminddb.Reader // Database's handler if it gets opened.
+	IsBlock      bool
+	Strict       bool
 }
 
-var (
-	hasCountryCodes bool
-	hasRanges       bool
-	isBlock         bool
-	strict          bool
-)
+// IPFConfig holds the configuration for the ipfilter middleware.
+type IPFConfig struct {
+	Paths     []IPPath
+	DBHandler *maxminddb.Reader // Database's handler if it gets opened.
+}
 
 // Range is a pair of two 'net.IP'.
 type Range struct {
@@ -118,7 +117,7 @@ func Setup(c *caddy.Controller) error {
 	return nil
 }
 
-func getClientIP(r *http.Request) (net.IP, error) {
+func getClientIP(r *http.Request, strict bool) (net.IP, error) {
 	var ip string
 
 	// Use the client ip from the 'X-Forwarded-For' header, if available.
@@ -142,29 +141,33 @@ func getClientIP(r *http.Request) (net.IP, error) {
 	return parsedIP, nil
 }
 
-func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
+// ShouldAllow takes a path and a request and decides if it should be allowed
+func (ipf IPFilter) ShouldAllow(path IPPath, r *http.Request) (bool, string, error) {
+	allow := true
+	scopeMatched := ""
+
 	// check if we are in one of our scopes.
-	for _, scope := range ipf.Config.PathScopes {
+	for _, scope := range path.PathScopes {
 		if httpserver.Path(r.URL.Path).Matches(scope) {
 			// extract the client's IP and parse it.
-			clientIP, err := getClientIP(r)
+			clientIP, err := getClientIP(r, path.Strict)
 			if err != nil {
-				return http.StatusInternalServerError, err
+				return false, scope, err
 			}
 
 			// request status.
 			var rs Status
 
-			if hasCountryCodes {
+			if len(path.CountryCodes) != 0 {
 				// do the lookup.
 				var result OnlyCountry
 				if err = ipf.Config.DBHandler.Lookup(clientIP, &result); err != nil {
-					return http.StatusInternalServerError, err
+					return false, scope, err
 				}
 
 				// get only the ISOCode out of the lookup results.
 				clientCountry := result.Country.ISOCode
-				for _, c := range ipf.Config.CountryCodes {
+				for _, c := range path.CountryCodes {
 					if clientCountry == c {
 						rs.countryMatch = true
 						break
@@ -172,8 +175,8 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 				}
 			}
 
-			if hasRanges {
-				for _, rng := range ipf.Config.Ranges {
+			if len(path.Ranges) != 0 {
+				for _, rng := range path.Ranges {
 					if rng.InRange(&clientIP) {
 						rs.inRange = true
 						break
@@ -181,153 +184,208 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 				}
 			}
 
+			scopeMatched = scope
 			if rs.Any() {
-				if isBlock { // if the rule is block and we have a true in our status, block.
-					return block(ipf.Config.BlockPage, &w)
-				}
-				// the rule is allow, and we have a true in our status, allow.
-				return ipf.Next.ServeHTTP(w, r)
+				// Rule matched, if the rule has IsBlock = true then we have to deny access
+				allow = !path.IsBlock
+			} else {
+				// Rule did not match, if the rule has IsBlock = true then we have to allow access
+				allow = path.IsBlock
 			}
-			if isBlock { // the rule is block and we have no trues in status, allow.
-				return ipf.Next.ServeHTTP(w, r)
-			}
-			// the rule is allow, and we have no trues in status, block.
-			return block(ipf.Config.BlockPage, &w)
+
+			// We only have to test the first path that matches because it is the most specific
+			break
 		}
 	}
+
 	// no scope match, pass-through.
+	return allow, scopeMatched, nil
+}
+
+func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
+	allow := true
+	matchedPath := ""
+	blockPage := ""
+
+	// Loop over all IPPaths in the config
+	for _, path := range ipf.Config.Paths {
+		pathAllow, pathMathedPath, err := ipf.ShouldAllow(path, r)
+		if err != nil {
+			return http.StatusInternalServerError, err
+		}
+
+		if len(pathMathedPath) >= len(matchedPath) {
+			allow = pathAllow
+			matchedPath = pathMathedPath
+			blockPage = path.BlockPage
+		}
+	}
+
+	if !allow {
+		return block(blockPage, &w)
+	}
 	return ipf.Next.ServeHTTP(w, r)
 }
 
-func ipfilterParse(c *caddy.Controller) (IPFConfig, error) {
-	var config IPFConfig
-
-	for c.Next() {
-
-		// get the PathScopes.
-		config.PathScopes = c.RemainingArgs()
-		if len(config.PathScopes) == 0 {
-			return config, c.ArgErr()
+// parseIP parses a string to an IP range.
+func parseIP(ip string) (Range, error) {
+	// check if the ip isn't complete;
+	// e.g. 192.168 -> Range{"192.168.0.0", "192.168.255.255"}
+	dotSplit := strings.Split(ip, ".")
+	if len(dotSplit) < 4 {
+		startR := make([]string, len(dotSplit), 4)
+		copy(startR, dotSplit)
+		for len(dotSplit) < 4 {
+			startR = append(startR, "0")
+			dotSplit = append(dotSplit, "255")
+		}
+		start := net.ParseIP(strings.Join(startR, "."))
+		end := net.ParseIP(strings.Join(dotSplit, "."))
+		if start.To4() == nil || end.To4() == nil {
+			return Range{start, end}, errors.New("Can't parse IPv4 address")
 		}
 
-		for c.NextBlock() {
-			value := c.Val()
+		return Range{start, end}, nil
+	}
 
-			switch value {
-			case "rule":
-				if !c.NextArg() {
-					return config, c.ArgErr()
-				}
-				config.Rule = c.Val()
+	// try to split on '-' to see if it is a range of ips e.g. 1.1.1.1-10
+	splitted := strings.Split(ip, "-")
+	if len(splitted) > 1 { // if more than one, then we got a range e.g. ["1.1.1.1", "10"]
+		start := net.ParseIP(splitted[0])
+		// make sure that we got a valid IPv4 IP.
+		if start.To4() == nil {
+			return Range{start, start}, errors.New("Can't parse IPv4 address")
+		}
 
-				if config.Rule == "block" {
-					isBlock = true
-				} else if config.Rule != "allow" {
-					return config, c.Err("ipfilter: Rule should be 'block' or 'allow'")
-				}
+		// split the start of the range on "." and switch the last field with splitted[1], e.g 1.1.1.1 -> 1.1.1.10
+		fields := strings.Split(start.String(), ".")
+		fields[3] = splitted[1]
+		end := net.ParseIP(strings.Join(fields, "."))
 
-			case "database":
-				if !c.NextArg() {
-					return config, c.ArgErr()
-				}
-				database := c.Val()
+		// parse the end range.
+		if end.To4() == nil {
+			return Range{start, end}, errors.New("Can't parse IPv4 address")
+		}
 
-				// open the database.
-				var err error
-				config.DBHandler, err = maxminddb.Open(database)
-				if err != nil {
-					return config, c.Err("ipfilter: Can't open database: " + database)
-				}
+		return Range{start, end}, nil
+	}
 
-			case "blockpage":
-				if !c.NextArg() {
-					return config, c.ArgErr()
-				}
+	// the IP is not a range.
+	parsedIP := net.ParseIP(ip)
+	if parsedIP.To4() == nil {
+		return Range{parsedIP, parsedIP}, errors.New("Can't parse IPv4 address")
+	}
 
-				// check if blockpage exists.
-				blockpage := c.Val()
-				if _, err := os.Stat(blockpage); os.IsNotExist(err) {
-					return config, c.Err("ipfilter: No such file: " + blockpage)
-				}
-				config.BlockPage = blockpage
+	// return singular IPs as a range e.g Range{192.168.1.100, 192.168.1.100}
+	return Range{parsedIP, parsedIP}, nil
+}
 
-			case "country":
-				config.CountryCodes = c.RemainingArgs()
-				if len(config.CountryCodes) == 0 {
-					return config, c.ArgErr()
-				}
-				hasCountryCodes = true
+// ipfilterParseSingle parses a single ipfilter {} block from the caddy config.
+func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error) {
+	var cPath IPPath
 
-			case "ip":
-				ips := c.RemainingArgs()
-				if len(ips) == 0 {
-					return config, c.ArgErr()
-				}
+	// Get PathScopes
+	cPath.PathScopes = c.RemainingArgs()
+	if len(cPath.PathScopes) == 0 {
+		return cPath, c.ArgErr()
+	}
 
-				for _, ip := range ips {
-					// check if the ip isn't complete;
-					// e.g. 192.168 -> Range{"192.168.0.0", "192.168.255.255"}
-					dotSplit := strings.Split(ip, ".")
-					if len(dotSplit) < 4 {
-						startR := make([]string, len(dotSplit), 4)
-						copy(startR, dotSplit)
-						for len(dotSplit) < 4 {
-							startR = append(startR, "0")
-							dotSplit = append(dotSplit, "255")
-						}
-						start := net.ParseIP(strings.Join(startR, "."))
-						end := net.ParseIP(strings.Join(dotSplit, "."))
-						if start.To4() == nil || end.To4() == nil {
-							return config, c.Err("ipfilter: Can't parse IPv4 address")
-						}
-						config.Ranges = append(config.Ranges, Range{start, end})
-						hasRanges = true
-						continue
-					}
+	// Sort PathScopes by length (the longest is always the most specific so should be tested first)
+	sort.Sort(sort.Reverse(ByLength(cPath.PathScopes)))
 
-					// try to split on '-' to see if it is a range of ips e.g. 1.1.1.1-10
-					splitted := strings.Split(ip, "-")
-					if len(splitted) > 1 { // if more than one, then we got a range e.g. ["1.1.1.1", "10"]
-						start := net.ParseIP(splitted[0])
-						// make sure that we got a valid IPv4 IP.
-						if start.To4() == nil {
-							return config, c.Err("ipfilter: Can't parse IPv4 address")
-						}
+	for c.NextBlock() {
+		value := c.Val()
 
-						// split the start of the range on "." and switch the last field with splitted[1], e.g 1.1.1.1 -> 1.1.1.10
-						fields := strings.Split(start.String(), ".")
-						fields[3] = splitted[1]
-						end := net.ParseIP(strings.Join(fields, "."))
-
-						// parse the end range.
-						if end.To4() == nil {
-							return config, c.Err("ipfilter: Can't parse IPv4 address")
-						}
-
-						// append to ranges, continue the loop.
-						config.Ranges = append(config.Ranges, Range{start, end})
-						hasRanges = true
-						continue
-
-					}
-
-					// the IP is not a range.
-					parsedIP := net.ParseIP(ip)
-					if parsedIP.To4() == nil {
-						return config, c.Err("ipfilter: Can't parse IPv4 address")
-					}
-					// append singular IPs as a range e.g Range{192.168.1.100, 192.168.1.100}
-					config.Ranges = append(config.Ranges, Range{parsedIP, parsedIP})
-					hasRanges = true
-				}
-
-			case "strict":
-				strict = true
+		switch value {
+		case "rule":
+			if !c.NextArg() {
+				return cPath, c.ArgErr()
 			}
+
+			rule := c.Val()
+			if rule == "block" {
+				cPath.IsBlock = true
+			} else if rule != "allow" {
+				return cPath, c.Err("ipfilter: Rule should be 'block' or 'allow'")
+			}
+		case "database":
+			if !c.NextArg() {
+				return cPath, c.ArgErr()
+			}
+			// Check if a database has already been opened
+			if config.DBHandler != nil {
+				return cPath, c.Err("ipfilter: A database is already opened")
+			}
+
+			database := c.Val()
+
+			// Open the database.
+			var err error
+			config.DBHandler, err = maxminddb.Open(database)
+			if err != nil {
+				return cPath, c.Err("ipfilter: Can't open database: " + database)
+			}
+		case "blockpage":
+			if !c.NextArg() {
+				return cPath, c.ArgErr()
+			}
+
+			// check if blockpage exists.
+			blockpage := c.Val()
+			if _, err := os.Stat(blockpage); os.IsNotExist(err) {
+				return cPath, c.Err("ipfilter: No such file: " + blockpage)
+			}
+			cPath.BlockPage = blockpage
+		case "country":
+			cPath.CountryCodes = c.RemainingArgs()
+			if len(cPath.CountryCodes) == 0 {
+				return cPath, c.ArgErr()
+			}
+		case "ip":
+			ips := c.RemainingArgs()
+			if len(ips) == 0 {
+				return cPath, c.ArgErr()
+			}
+
+			for _, ip := range ips {
+				ipRange, err := parseIP(ip)
+				if err != nil {
+					return cPath, c.Err("ipfilter: " + err.Error())
+				}
+
+				cPath.Ranges = append(cPath.Ranges, ipRange)
+			}
+		case "strict":
+			cPath.Strict = true
 		}
 	}
 
-	// having a databse is mandatory if you are blocking by country codes.
+	return cPath, nil
+}
+
+// ipfilterParse parses all ipfilter {} blocks to an IPFConfig
+func ipfilterParse(c *caddy.Controller) (IPFConfig, error) {
+	var config IPFConfig
+
+	var hasCountryCodes, hasRanges bool
+
+	for c.Next() {
+		path, err := ipfilterParseSingle(&config, c)
+		if err != nil {
+			return config, err
+		}
+
+		if len(path.CountryCodes) != 0 {
+			hasCountryCodes = true
+		}
+		if len(path.Ranges) != 0 {
+			hasRanges = true
+		}
+
+		config.Paths = append(config.Paths, path)
+	}
+
+	// having a database is mandatory if you are blocking by country codes.
 	if hasCountryCodes && config.DBHandler == nil {
 		return config, c.Err("ipfilter: Database is required to block/allow by country")
 	}
@@ -336,5 +394,21 @@ func ipfilterParse(c *caddy.Controller) (IPFConfig, error) {
 	if !hasCountryCodes && !hasRanges {
 		return config, c.Err("ipfilter: No IPs or Country codes has been provided")
 	}
+
 	return config, nil
+}
+
+// ByLength sorts strings by length and alphabetically (if same length)
+type ByLength []string
+
+func (s ByLength) Len() int      { return len(s) }
+func (s ByLength) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+func (s ByLength) Less(i, j int) bool {
+	if len(s[i]) < len(s[j]) {
+		return true
+	} else if len(s[i]) == len(s[j]) {
+		return s[i] < s[j] // Compare alphabetically in ascending order
+	}
+	return false
 }

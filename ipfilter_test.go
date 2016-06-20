@@ -25,8 +25,6 @@ const (
 )
 
 func TestCountryCodes(t *testing.T) {
-	hasCountryCodes = true
-
 	TestCases := []struct {
 		ipfconf        IPFConfig
 		reqIP          string
@@ -35,10 +33,14 @@ func TestCountryCodes(t *testing.T) {
 		expectedStatus int
 	}{
 		{IPFConfig{
-			PathScopes:   []string{"/"},
-			BlockPage:    BlockPage,
-			Rule:         Allow,
-			CountryCodes: []string{"JP", "SA"},
+			Paths: []IPPath{
+				{
+					PathScopes:   []string{"/"},
+					BlockPage:    BlockPage,
+					IsBlock:      false,
+					CountryCodes: []string{"JP", "SA"},
+				},
+			},
 		},
 			"8.8.8.8:_", // US
 			"/",
@@ -47,10 +49,14 @@ func TestCountryCodes(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes:   []string{"/private"},
-			BlockPage:    BlockPage,
-			Rule:         Block,
-			CountryCodes: []string{"US", "CA"},
+			Paths: []IPPath{
+				{
+					PathScopes:   []string{"/private"},
+					BlockPage:    BlockPage,
+					IsBlock:      true,
+					CountryCodes: []string{"US", "CA"},
+				},
+			},
 		},
 			"24.53.192.20:_", // CA
 			"/private",
@@ -59,9 +65,13 @@ func TestCountryCodes(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes:   []string{"/testdata"},
-			Rule:         Block,
-			CountryCodes: []string{"RU", "CN"},
+			Paths: []IPPath{
+				{
+					PathScopes:   []string{"/testdata"},
+					IsBlock:      true,
+					CountryCodes: []string{"RU", "CN"},
+				},
+			},
 		},
 			"42.48.120.7:_", // CN
 			"/",
@@ -70,9 +80,13 @@ func TestCountryCodes(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes:   []string{"/"},
-			Rule:         Block,
-			CountryCodes: []string{"RU", "JP", "SA"},
+			Paths: []IPPath{
+				{
+					PathScopes:   []string{"/"},
+					IsBlock:      true,
+					CountryCodes: []string{"RU", "JP", "SA"},
+				},
+			},
 		},
 			"78.95.221.163:_", // SA
 			"/",
@@ -81,9 +95,13 @@ func TestCountryCodes(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes:   []string{"/onlyus"},
-			Rule:         Allow,
-			CountryCodes: []string{"US"},
+			Paths: []IPPath{
+				{
+					PathScopes:   []string{"/onlyus"},
+					IsBlock:      false,
+					CountryCodes: []string{"US"},
+				},
+			},
 		},
 			"5.175.96.22:_", // RU
 			"/onlyus",
@@ -92,9 +110,13 @@ func TestCountryCodes(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes:   []string{"/"},
-			Rule:         Allow,
-			CountryCodes: []string{"FR", "GB", "AE", "DE"},
+			Paths: []IPPath{
+				{
+					PathScopes:   []string{"/"},
+					IsBlock:      false,
+					CountryCodes: []string{"FR", "GB", "AE", "DE"},
+				},
+			},
 		},
 			"5.4.9.3:_", // DE
 			"/",
@@ -110,11 +132,6 @@ func TestCountryCodes(t *testing.T) {
 	defer db.Close()
 
 	for _, tc := range TestCases {
-		if tc.ipfconf.Rule == Block {
-			isBlock = true
-		} else {
-			isBlock = false
-		}
 
 		ipf := IPFilter{
 			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
@@ -146,13 +163,9 @@ func TestCountryCodes(t *testing.T) {
 				tc.expectedBody, rec.Body.String(), tc)
 		}
 	}
-	// get ready for the next test
-	hasCountryCodes = false
 }
 
 func TestRanges(t *testing.T) {
-	hasRanges = true
-
 	TestCases := []struct {
 		ipfconf        IPFConfig
 		reqIP          string
@@ -161,13 +174,17 @@ func TestRanges(t *testing.T) {
 		expectedStatus int
 	}{
 		{IPFConfig{
-			PathScopes: []string{"/"},
-			BlockPage:  BlockPage,
-			Rule:       Block,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("243.1.3.10"),
-					net.ParseIP("243.1.3.20"),
+					PathScopes: []string{"/"},
+					BlockPage:  BlockPage,
+					IsBlock:    true,
+					Ranges: []Range{
+						{
+							net.ParseIP("243.1.3.10"),
+							net.ParseIP("243.1.3.20"),
+						},
+					},
 				},
 			},
 		},
@@ -178,17 +195,21 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/private"},
-			BlockPage:  BlockPage,
-			Rule:       Block,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("243.1.3.10"),
-					net.ParseIP("243.1.3.20"),
-				},
-				{
-					net.ParseIP("202.33.44.1"),
-					net.ParseIP("202.33.44.255"),
+					PathScopes: []string{"/private"},
+					BlockPage:  BlockPage,
+					IsBlock:    true,
+					Ranges: []Range{
+						{
+							net.ParseIP("243.1.3.10"),
+							net.ParseIP("243.1.3.20"),
+						},
+						{
+							net.ParseIP("202.33.44.1"),
+							net.ParseIP("202.33.44.255"),
+						},
+					},
 				},
 			},
 		},
@@ -199,13 +220,17 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/"},
-			BlockPage:  BlockPage,
-			Rule:       Block,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("243.1.3.10"),
-					net.ParseIP("243.1.3.20"),
+					PathScopes: []string{"/"},
+					BlockPage:  BlockPage,
+					IsBlock:    true,
+					Ranges: []Range{
+						{
+							net.ParseIP("243.1.3.10"),
+							net.ParseIP("243.1.3.20"),
+						},
+					},
 				},
 			},
 		},
@@ -216,17 +241,21 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/eighties"},
-			BlockPage:  BlockPage,
-			Rule:       Allow,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("243.1.3.10"),
-					net.ParseIP("243.1.3.20"),
-				},
-				{
-					net.ParseIP("80.0.0.0"),
-					net.ParseIP("80.255.255.255"),
+					PathScopes: []string{"/eighties"},
+					BlockPage:  BlockPage,
+					IsBlock:    false,
+					Ranges: []Range{
+						{
+							net.ParseIP("243.1.3.10"),
+							net.ParseIP("243.1.3.20"),
+						},
+						{
+							net.ParseIP("80.0.0.0"),
+							net.ParseIP("80.255.255.255"),
+						},
+					},
 				},
 			},
 		},
@@ -237,16 +266,20 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/eighties"},
-			Rule:       Block,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("243.1.3.10"),
-					net.ParseIP("243.1.3.20"),
-				},
-				{
-					net.ParseIP("80.0.0.0"),
-					net.ParseIP("80.255.255.255"),
+					PathScopes: []string{"/eighties"},
+					IsBlock:    true,
+					Ranges: []Range{
+						{
+							net.ParseIP("243.1.3.10"),
+							net.ParseIP("243.1.3.20"),
+						},
+						{
+							net.ParseIP("80.0.0.0"),
+							net.ParseIP("80.255.255.255"),
+						},
+					},
 				},
 			},
 		},
@@ -257,24 +290,28 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/"},
-			Rule:       Block,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("243.1.3.10"),
-					net.ParseIP("243.1.3.20"),
-				},
-				{
-					net.ParseIP("80.0.0.0"),
-					net.ParseIP("80.255.255.255"),
-				},
-				{
-					net.ParseIP("23.1.3.1"),
-					net.ParseIP("23.1.3.20"),
-				},
-				{
-					net.ParseIP("85.0.0.0"),
-					net.ParseIP("85.255.255.255"),
+					PathScopes: []string{"/"},
+					IsBlock:    true,
+					Ranges: []Range{
+						{
+							net.ParseIP("243.1.3.10"),
+							net.ParseIP("243.1.3.20"),
+						},
+						{
+							net.ParseIP("80.0.0.0"),
+							net.ParseIP("80.255.255.255"),
+						},
+						{
+							net.ParseIP("23.1.3.1"),
+							net.ParseIP("23.1.3.20"),
+						},
+						{
+							net.ParseIP("85.0.0.0"),
+							net.ParseIP("85.255.255.255"),
+						},
+					},
 				},
 			},
 		},
@@ -285,13 +322,17 @@ func TestRanges(t *testing.T) {
 		},
 		// From here on out, tests are covering single IP ranges
 		{IPFConfig{
-			PathScopes: []string{"/"},
-			BlockPage:  BlockPage,
-			Rule:       Block,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("8.8.8.8"),
-					net.ParseIP("8.8.8.8"),
+					PathScopes: []string{"/"},
+					BlockPage:  BlockPage,
+					IsBlock:    true,
+					Ranges: []Range{
+						{
+							net.ParseIP("8.8.8.8"),
+							net.ParseIP("8.8.8.8"),
+						},
+					},
 				},
 			},
 		},
@@ -302,13 +343,17 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/"},
-			BlockPage:  BlockPage,
-			Rule:       Allow,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("8.8.8.8"),
-					net.ParseIP("8.8.8.8"),
+					PathScopes: []string{"/"},
+					BlockPage:  BlockPage,
+					IsBlock:    false,
+					Ranges: []Range{
+						{
+							net.ParseIP("8.8.8.8"),
+							net.ParseIP("8.8.8.8"),
+						},
+					},
 				},
 			},
 		},
@@ -319,21 +364,25 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/private"},
-			BlockPage:  BlockPage,
-			Rule:       Allow,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("52.9.1.2"),
-					net.ParseIP("52.9.1.2"),
-				},
-				{
-					net.ParseIP("52.9.1.3"),
-					net.ParseIP("52.9.1.3"),
-				},
-				{
-					net.ParseIP("52.9.1.4"),
-					net.ParseIP("52.9.1.4"),
+					PathScopes: []string{"/private"},
+					BlockPage:  BlockPage,
+					IsBlock:    false,
+					Ranges: []Range{
+						{
+							net.ParseIP("52.9.1.2"),
+							net.ParseIP("52.9.1.2"),
+						},
+						{
+							net.ParseIP("52.9.1.3"),
+							net.ParseIP("52.9.1.3"),
+						},
+						{
+							net.ParseIP("52.9.1.4"),
+							net.ParseIP("52.9.1.4"),
+						},
+					},
 				},
 			},
 		},
@@ -344,13 +393,17 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/private"},
-			BlockPage:  BlockPage,
-			Rule:       Allow,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("99.1.8.8"),
-					net.ParseIP("99.1.8.8"),
+					PathScopes: []string{"/private"},
+					BlockPage:  BlockPage,
+					IsBlock:    false,
+					Ranges: []Range{
+						{
+							net.ParseIP("99.1.8.8"),
+							net.ParseIP("99.1.8.8"),
+						},
+					},
 				},
 			},
 		},
@@ -361,20 +414,24 @@ func TestRanges(t *testing.T) {
 		},
 
 		{IPFConfig{
-			PathScopes: []string{"/private"},
-			Rule:       Block,
-			Ranges: []Range{
+			Paths: []IPPath{
 				{
-					net.ParseIP("52.9.1.2"),
-					net.ParseIP("52.9.1.2"),
-				},
-				{
-					net.ParseIP("52.9.1.3"),
-					net.ParseIP("52.9.1.3"),
-				},
-				{
-					net.ParseIP("52.9.1.4"),
-					net.ParseIP("52.9.1.4"),
+					PathScopes: []string{"/private"},
+					IsBlock:    true,
+					Ranges: []Range{
+						{
+							net.ParseIP("52.9.1.2"),
+							net.ParseIP("52.9.1.2"),
+						},
+						{
+							net.ParseIP("52.9.1.3"),
+							net.ParseIP("52.9.1.3"),
+						},
+						{
+							net.ParseIP("52.9.1.4"),
+							net.ParseIP("52.9.1.4"),
+						},
+					},
 				},
 			},
 		},
@@ -386,12 +443,6 @@ func TestRanges(t *testing.T) {
 	}
 
 	for _, tc := range TestCases {
-		if tc.ipfconf.Rule == Block {
-			isBlock = true
-		} else {
-			isBlock = false
-		}
-
 		ipf := IPFilter{
 			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
 				return http.StatusOK, nil
@@ -432,12 +483,16 @@ func TestFwdForIPs(t *testing.T) {
 		// Middleware should block request when filtering rule is set to 'Block', a *blocked* IP is passed in the 'X-Forwarded-For' header and the request is coming from *permitted* remote address
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Block,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    true,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
 					},
 				},
 			},
@@ -449,12 +504,16 @@ func TestFwdForIPs(t *testing.T) {
 		// Middleware should allow request when filtering rule is set to 'Block', no IP is passed in the 'X-Forwarded-For' header and the request is coming from *permitted* remote address
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Block,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    true,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
 					},
 				},
 			},
@@ -466,12 +525,16 @@ func TestFwdForIPs(t *testing.T) {
 		// Middleware should allow request when filtering rule is set to 'Block', a *permitted* IP is passed in the 'X-Forwarded-For' header and the request is coming from *blocked* remote address
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Block,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    true,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
 					},
 				},
 			},
@@ -483,12 +546,16 @@ func TestFwdForIPs(t *testing.T) {
 		// Middleware should allow request when filtering rule is set to 'Allow', a *permitted* IP is passed in the 'X-Forwarded-For' header and the request is coming from *blocked* remote address
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Allow,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    false,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
 					},
 				},
 			},
@@ -500,12 +567,16 @@ func TestFwdForIPs(t *testing.T) {
 		// Middleware should block request when filtering rule is set to 'Allow', no IP is passed in the 'X-Forwarded-For' header and the request is coming from *blocked* remote address
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Allow,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    false,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
 					},
 				},
 			},
@@ -517,12 +588,16 @@ func TestFwdForIPs(t *testing.T) {
 		// Middleware should block request when filtering rule is set to 'Allow', a *blocked* IP is passed in the 'X-Forwarded-For' header and the request is coming from *permitted* remote address
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Allow,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    false,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
 					},
 				},
 			},
@@ -534,12 +609,6 @@ func TestFwdForIPs(t *testing.T) {
 	}
 
 	for _, tc := range TestCases {
-		if tc.ipfconf.Rule == Block {
-			isBlock = true
-		} else {
-			isBlock = false
-		}
-
 		ipf := IPFilter{
 			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
 				return http.StatusOK, nil
@@ -574,16 +643,20 @@ func TestStrict(t *testing.T) {
 		fwdFor         string
 		scope          string
 		expectedStatus int
-		strict         bool
 	}{
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Block,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    true,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
+						Strict: true,
 					},
 				},
 			},
@@ -591,16 +664,20 @@ func TestStrict(t *testing.T) {
 			"8.8.8.8",
 			"/",
 			http.StatusOK,
-			true,
 		},
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Block,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    true,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
+						Strict: true,
 					},
 				},
 			},
@@ -608,16 +685,20 @@ func TestStrict(t *testing.T) {
 			"8.8.8.8",
 			"/",
 			http.StatusForbidden,
-			true,
 		},
 		{
 			IPFConfig{
-				PathScopes: []string{"/"},
-				Rule:       Block,
-				Ranges: []Range{
+				Paths: []IPPath{
 					{
-						net.ParseIP("8.8.8.8"),
-						net.ParseIP("8.8.8.8"),
+						PathScopes: []string{"/"},
+						IsBlock:    true,
+						Ranges: []Range{
+							{
+								net.ParseIP("8.8.8.8"),
+								net.ParseIP("8.8.8.8"),
+							},
+						},
+						Strict: false,
 					},
 				},
 			},
@@ -625,20 +706,10 @@ func TestStrict(t *testing.T) {
 			"8.8.8.8",
 			"/",
 			http.StatusForbidden,
-			false,
 		},
 	}
 
 	for _, tc := range TestCases {
-		if tc.ipfconf.Rule == Block {
-			isBlock = true
-		} else {
-			isBlock = false
-		}
-
-		// set the strict flag
-		strict = tc.strict
-
 		ipf := IPFilter{
 			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
 				return http.StatusOK, nil
@@ -666,42 +737,45 @@ func TestStrict(t *testing.T) {
 	}
 }
 
-func TestIpfilterParse(t *testing.T) {
+func TestIpfilterParseSingle(t *testing.T) {
 	tests := []struct {
 		inputIpfilterConfig string
 		shouldErr           bool
-		expectedConfig      IPFConfig
+		expectedPath        IPPath
+		DBHandler           *maxminddb.Reader
 	}{
-		{`ipfilter / {
+		{`/ {
 			rule allow
 			ip 10.0.0.1
-			}`, false, IPFConfig{
+			}`, false, IPPath{
 			PathScopes: []string{"/"},
-			Rule:       Allow,
+			IsBlock:    false,
 			Ranges: []Range{
 				{net.ParseIP("10.0.0.1"), net.ParseIP("10.0.0.1")},
 			},
-		}},
-		{fmt.Sprintf(`ipfilter /blog /local {
+		}, nil,
+		},
+		{fmt.Sprintf(`/blog /local {
 			rule block
 			ip 10.0.0.1-150 20.0.0.1-255 30.0.0.2
 			blockpage %s
-			}`, BlockPage), false, IPFConfig{
-			PathScopes: []string{"/blog", "/local"},
-			Rule:       Block,
+			}`, BlockPage), false, IPPath{
+			PathScopes: []string{"/local", "/blog"},
+			IsBlock:    true,
 			BlockPage:  BlockPage,
 			Ranges: []Range{
 				{net.ParseIP("10.0.0.1"), net.ParseIP("10.0.0.150")},
 				{net.ParseIP("20.0.0.1"), net.ParseIP("20.0.0.255")},
 				{net.ParseIP("30.0.0.2"), net.ParseIP("30.0.0.2")},
 			},
-		}},
-		{`ipfilter / {
+		}, nil,
+		},
+		{`/ {
 			rule allow
 			ip 192.168 10.0.0.20-25 8.8.4.4 182 0
-			}`, false, IPFConfig{
+			}`, false, IPPath{
 			PathScopes: []string{"/"},
-			Rule:       Allow,
+			IsBlock:    false,
 			Ranges: []Range{
 				{net.ParseIP("192.168.0.0"), net.ParseIP("192.168.255.255")},
 				{net.ParseIP("10.0.0.20"), net.ParseIP("10.0.0.25")},
@@ -709,16 +783,17 @@ func TestIpfilterParse(t *testing.T) {
 				{net.ParseIP("182.0.0.0"), net.ParseIP("182.255.255.255")},
 				{net.ParseIP("0.0.0.0"), net.ParseIP("0.255.255.255")},
 			},
-		}},
-		{fmt.Sprintf(`ipfilter /private /blog /local {
+		}, nil,
+		},
+		{fmt.Sprintf(`/private /blog /local {
 			rule block
 			ip 11.10.12 192.168.8.4-50 20.20.20.20 255 8.8.8.8
 			country US JP RU FR
 			database %s
 			blockpage %s
-			}`, DataBase, BlockPage), false, IPFConfig{
-			PathScopes:   []string{"/private", "/blog", "/local"},
-			Rule:         Block,
+			}`, DataBase, BlockPage), false, IPPath{
+			PathScopes:   []string{"/private", "/local", "/blog"},
+			IsBlock:      true,
 			BlockPage:    BlockPage,
 			CountryCodes: []string{"US", "JP", "RU", "FR"},
 			Ranges: []Range{
@@ -728,37 +803,60 @@ func TestIpfilterParse(t *testing.T) {
 				{net.ParseIP("255.0.0.0"), net.ParseIP("255.255.255.255")},
 				{net.ParseIP("8.8.8.8"), net.ParseIP("8.8.8.8")},
 			},
-			DBHandler: &maxminddb.Reader{},
-		}},
-		{`ipfilter / {
+		}, &maxminddb.Reader{},
+		},
+		{fmt.Sprintf(`/private /blog /local /contact {
+			rule block
+			ip 11.10.12 192.168.8.4-50 20.20.20.20 255 8.8.8.8
+			country US JP RU FR
+			database %s
+			blockpage %s
+			}`, DataBase, BlockPage), false, IPPath{
+			PathScopes:   []string{"/private", "/contact", "/local", "/blog"},
+			IsBlock:      true,
+			BlockPage:    BlockPage,
+			CountryCodes: []string{"US", "JP", "RU", "FR"},
+			Ranges: []Range{
+				{net.ParseIP("11.10.12.0"), net.ParseIP("11.10.12.255")},
+				{net.ParseIP("192.168.8.4"), net.ParseIP("192.168.8.50")},
+				{net.ParseIP("20.20.20.20"), net.ParseIP("20.20.20.20")},
+				{net.ParseIP("255.0.0.0"), net.ParseIP("255.255.255.255")},
+				{net.ParseIP("8.8.8.8"), net.ParseIP("8.8.8.8")},
+			},
+		}, &maxminddb.Reader{},
+		},
+		{`/ {
 			rule allow
 			ip 11.
-			}`, true, IPFConfig{
+			}`, true, IPPath{
 			PathScopes: []string{"/"},
-			Rule:       Allow,
+			IsBlock:    false,
+		}, nil,
 		},
-		},
-		{`ipfilter / {
+		{`/ {
 			rule allow
 			ip 192.168.1.10-
-			}`, true, IPFConfig{
+			}`, true, IPPath{
 			PathScopes: []string{"/"},
-			Rule:       Allow,
+			IsBlock:    false,
+		}, nil,
 		},
-		},
-		{`ipfilter / {
+		{`/ {
 			rule allow
 			ip 192.168.1.10- 20.20.20.20
-			}`, true, IPFConfig{
+			}`, true, IPPath{
 			PathScopes: []string{"/"},
-			Rule:       Allow,
-		},
+			IsBlock:    false,
+		}, nil,
 		},
 	}
 
 	for i, test := range tests {
 		c := caddy.NewTestController("http", test.inputIpfilterConfig)
-		actualConfig, err := ipfilterParse(c)
+
+		actualConfig := IPFConfig{[]IPPath{test.expectedPath}, nil}
+
+		actualPath, err := ipfilterParseSingle(&actualConfig, c)
 
 		if err == nil && test.shouldErr {
 			t.Errorf("Test %d didn't error, but it should have", i)
@@ -767,43 +865,133 @@ func TestIpfilterParse(t *testing.T) {
 		}
 
 		// PathScopes
-		if !reflect.DeepEqual(actualConfig.PathScopes, test.expectedConfig.PathScopes) {
+		if !reflect.DeepEqual(actualPath.PathScopes, test.expectedPath.PathScopes) {
 			t.Errorf("Test %d expected 'PathScopes': %v got: %v",
-				i, test.expectedConfig.PathScopes, actualConfig.PathScopes)
+				i, test.expectedPath.PathScopes, actualPath.PathScopes)
 		}
 
 		// Rule
-		if actualConfig.Rule != test.expectedConfig.Rule {
-			t.Errorf("Test %d expected 'Rule': %s, got: %s",
-				i, test.expectedConfig.Rule, actualConfig.Rule)
+		if actualPath.IsBlock != test.expectedPath.IsBlock {
+			t.Errorf("Test %d expected 'IsBlock': %t, got: %t",
+				i, test.expectedPath.IsBlock, actualPath.IsBlock)
 		}
 
 		// BlockPage
-		if actualConfig.BlockPage != test.expectedConfig.BlockPage {
+		if actualPath.BlockPage != test.expectedPath.BlockPage {
 			t.Errorf("Test %d expected 'BlockPage': %s got: %s",
-				i, test.expectedConfig.BlockPage, actualConfig.BlockPage)
+				i, test.expectedPath.BlockPage, actualPath.BlockPage)
 		}
 
 		// CountryCodes
-		if !reflect.DeepEqual(actualConfig.CountryCodes, test.expectedConfig.CountryCodes) {
+		if !reflect.DeepEqual(actualPath.CountryCodes, test.expectedPath.CountryCodes) {
 			t.Errorf("Test %d expected 'CountryCodes': %v got: %v",
-				i, test.expectedConfig.CountryCodes, actualConfig.CountryCodes)
+				i, test.expectedPath.CountryCodes, actualPath.CountryCodes)
 		}
 
 		// Ranges
-		if !reflect.DeepEqual(actualConfig.Ranges, test.expectedConfig.Ranges) {
+		if !reflect.DeepEqual(actualPath.Ranges, test.expectedPath.Ranges) {
 			t.Errorf("Test %d expected 'Ranges': %s\ngot: %s",
-				i, prettyPrintRanges(test.expectedConfig.Ranges), prettyPrintRanges(actualConfig.Ranges))
+				i, prettyPrintRanges(test.expectedPath.Ranges), prettyPrintRanges(actualPath.Ranges))
 		}
 
 		// DBHandler
-		if actualConfig.DBHandler == nil && test.expectedConfig.DBHandler != nil {
+		if actualConfig.DBHandler == nil && test.DBHandler != nil {
 			t.Errorf("Test %d expected 'DBHandler' to NOT be a nil, got a non-nil", i)
 		}
-		if actualConfig.DBHandler != nil && test.expectedConfig.DBHandler == nil {
+		if actualConfig.DBHandler != nil && test.DBHandler == nil {
 			t.Errorf("Test %d expected 'DBHandler' to be nil, it is not", i)
 		}
 
+	}
+}
+
+func TestMultipleIpFilters(t *testing.T) {
+	TestCases := []struct {
+		inputIpfilterConfig string
+		shouldErr           bool
+		reqIP               string
+		reqPath             string
+		expectedStatus      int
+	}{
+		{
+			`ipfilter / {
+				rule block
+				ip 192.168.1.10
+			}
+			ipfilter /allowed {
+				rule allow
+				ip 192.168.1.10
+			}`, false, "192.168.1.10:12345", "/", http.StatusForbidden,
+		},
+		{
+			`ipfilter / {
+				rule block
+				ip 192.168.1.10
+			}
+			ipfilter /allowed {
+				rule allow
+				ip 192.168.1.10
+			}`, false, "192.168.1.10:12345", "/allowed", http.StatusOK,
+		},
+		{
+			`ipfilter / {
+				rule block
+				ip 192.168.1.10
+			}
+			ipfilter /allowed {
+				rule allow
+				ip 192.168.1.10
+			}`, false, "212.168.23.13:12345", "/", http.StatusOK,
+		},
+		{
+			`ipfilter / {
+				rule block
+				ip 192.168.1.10
+			}
+			ipfilter /allowed {
+				rule allow
+				ip 192.168.1.10
+			}`, false, "212.168.23.13:12345", "/allowed", http.StatusForbidden,
+		},
+	}
+
+	for i, tc := range TestCases {
+		// Parse the text config
+		c := caddy.NewTestController("http", tc.inputIpfilterConfig)
+		config, err := ipfilterParse(c)
+
+		if err != nil && !tc.shouldErr {
+			t.Errorf("Test %d failed, error generated while it should not: %v", i, err)
+		} else if err == nil && tc.shouldErr {
+			t.Errorf("Test %d failed, no error generated while it should", i)
+		} else if err != nil {
+			continue
+		}
+
+		ipf := IPFilter{
+			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+				return http.StatusOK, nil
+			}),
+			Config: config,
+		}
+
+		req, err := http.NewRequest("GET", tc.reqPath, nil)
+		if err != nil {
+			t.Fatalf("Could not create HTTP request: %v", err)
+		}
+
+		req.RemoteAddr = tc.reqIP
+
+		rec := httptest.NewRecorder()
+
+		status, err := ipf.ServeHTTP(rec, req)
+		if err != nil {
+			t.Fatalf("Test %d failed. Error generated:\n%v", i, err)
+		}
+		if status != tc.expectedStatus {
+			t.Fatalf("Test %d failed. Expected StatusCode: '%d', Got: '%d'\nTestCase: %v\n",
+				i, tc.expectedStatus, status, tc)
+		}
 	}
 }
 
