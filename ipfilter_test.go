@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mholt/caddy/caddy/setup"
-	"github.com/mholt/caddy/middleware"
+	"github.com/mholt/caddy"
+	"github.com/mholt/caddy/caddyhttp/httpserver"
 	"github.com/oschwald/maxminddb-golang"
 )
 
@@ -117,7 +117,7 @@ func TestCountryCodes(t *testing.T) {
 		}
 
 		ipf := IPFilter{
-			Next: middleware.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
 				return http.StatusOK, nil
 			}),
 			Config: tc.ipfconf,
@@ -393,7 +393,7 @@ func TestRanges(t *testing.T) {
 		}
 
 		ipf := IPFilter{
-			Next: middleware.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
 				return http.StatusOK, nil
 			}),
 			Config: tc.ipfconf,
@@ -541,7 +541,7 @@ func TestFwdForIPs(t *testing.T) {
 		}
 
 		ipf := IPFilter{
-			Next: middleware.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
 				return http.StatusOK, nil
 			}),
 			Config: tc.ipfconf,
@@ -640,7 +640,7 @@ func TestStrict(t *testing.T) {
 		strict = tc.strict
 
 		ipf := IPFilter{
-			Next: middleware.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
 				return http.StatusOK, nil
 			}),
 			Config: tc.ipfconf,
@@ -757,7 +757,7 @@ func TestIpfilterParse(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		c := setup.NewTestController(test.inputIpfilterConfig)
+		c := caddy.NewTestController("http", test.inputIpfilterConfig)
 		actualConfig, err := ipfilterParse(c)
 
 		if err == nil && test.shouldErr {

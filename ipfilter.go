@@ -9,14 +9,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mholt/caddy/caddy/setup"
-	"github.com/mholt/caddy/middleware"
+	"github.com/mholt/caddy"
+	"github.com/mholt/caddy/caddyhttp/httpserver"
 	"github.com/oschwald/maxminddb-golang"
 )
 
 // IPFilter is a middleware for filtering clients based on their ip or country's ISO code.
 type IPFilter struct {
-	Next   middleware.Handler
+	Next   httpserver.Handler
 	Config IPFConfig
 }
 
@@ -89,19 +89,33 @@ func block(blockPage string, w *http.ResponseWriter) (int, error) {
 	return http.StatusForbidden, nil
 }
 
+// Init initializes the plugin
+func init() {
+	caddy.RegisterPlugin("ipfilter", caddy.Plugin{
+		ServerType: "http",
+		Action:     Setup,
+	})
+}
+
 // Setup parses the ipfilter configuration and returns the middleware handler.
-func Setup(c *setup.Controller) (middleware.Middleware, error) {
+func Setup(c *caddy.Controller) error {
 	ifconfig, err := ipfilterParse(c)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return func(next middleware.Handler) middleware.Handler {
+	// Create new middleware
+	newMiddleWare := func(next httpserver.Handler) httpserver.Handler {
 		return &IPFilter{
 			Next:   next,
 			Config: ifconfig,
 		}
-	}, nil
+	}
+	// Add middleware
+	cfg := httpserver.GetConfig(c)
+	cfg.AddMiddleware(newMiddleWare)
+
+	return nil
 }
 
 func getClientIP(r *http.Request) (net.IP, error) {
@@ -131,7 +145,7 @@ func getClientIP(r *http.Request) (net.IP, error) {
 func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	// check if we are in one of our scopes.
 	for _, scope := range ipf.Config.PathScopes {
-		if middleware.Path(r.URL.Path).Matches(scope) {
+		if httpserver.Path(r.URL.Path).Matches(scope) {
 			// extract the client's IP and parse it.
 			clientIP, err := getClientIP(r)
 			if err != nil {
@@ -185,7 +199,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 	return ipf.Next.ServeHTTP(w, r)
 }
 
-func ipfilterParse(c *setup.Controller) (IPFConfig, error) {
+func ipfilterParse(c *caddy.Controller) (IPFConfig, error) {
 	var config IPFConfig
 
 	for c.Next() {
