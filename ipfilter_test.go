@@ -953,6 +953,112 @@ func TestMultipleIpFilters(t *testing.T) {
 				ip 192.168.1.10
 			}`, false, "212.168.23.13:12345", "/allowed", http.StatusForbidden,
 		},
+		{
+			fmt.Sprintf(`ipfilter / {
+				rule allow
+				ip 192.168.1.10
+			}
+			ipfilter /allowed {
+				rule allow
+				country US
+				database %s
+			}`, DataBase), false, "8.8.8.8:12345", "/allowed", http.StatusOK,
+		},
+		{
+			fmt.Sprintf(`ipfilter /local {
+				rule allow
+				ip 192.168.1
+			}
+			ipfilter /private {
+				rule allow
+				ip 192.168.1.10-15
+			}
+			ipfilter /notglobal /secret {
+				rule block
+				country RU
+				database %s
+			}
+			ipfilter / {
+				rule allow
+				ip 212.222.222.1
+			}`, DataBase), false, "192.168.1.9:12345", "/private", http.StatusForbidden,
+		},
+		{
+			fmt.Sprintf(`ipfilter /local {
+				rule allow
+				ip 192.168.1
+			}
+			ipfilter /private {
+				rule allow
+				ip 192.168.1.10-15
+			}
+			ipfilter /notglobal /secret {
+				rule block
+				country RU
+				database %s
+			}
+			ipfilter / {
+				rule allow
+				ip 212.222.222.1
+			}`, DataBase), false, "212.222.222.1:12345", "/list", http.StatusOK,
+		},
+		{
+			fmt.Sprintf(`ipfilter /local {
+				rule allow
+				ip 192.168.1
+			}
+			ipfilter /private {
+				rule allow
+				ip 192.168.1.10-15
+			}
+			ipfilter /notglobal /secret {
+				rule block
+				country RU
+				database %s
+			}
+			ipfilter / {
+				rule allow
+				ip 212.222.222.1
+			}`, DataBase), false, "5.175.96.22:12345", "/secret", http.StatusForbidden,
+		},
+		{
+			fmt.Sprintf(`ipfilter /local {
+				rule allow
+				ip 192.168.1
+			}
+			ipfilter /private {
+				rule allow
+				ip 192.168.1.10-15
+			}
+			ipfilter /notglobal /secret {
+				rule block
+				country RU
+				database %s
+			}
+			ipfilter / {
+				rule allow
+				ip 212.222.222.1
+			}`, DataBase), false, "192.168.1.14:12345", "/local", http.StatusOK,
+		},
+		{
+			fmt.Sprintf(`ipfilter /local {
+				rule allow
+				ip 192.168.1
+			}
+			ipfilter /private {
+				rule allow
+				ip 192.168.1.10-15
+			}
+			ipfilter /notglobal /secret {
+				rule block
+				country RU
+				database %s
+			}
+			ipfilter / {
+				rule allow
+				ip 212.222.222.1
+			}`, DataBase), false, "192.168.1.16:12345", "/private", http.StatusForbidden,
+		},
 	}
 
 	for i, tc := range TestCases {
