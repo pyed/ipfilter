@@ -44,3 +44,18 @@ ipfilter /notglobal /secret {
 }
 ```
 having that in your `Caddyfile` caddy will ignore any requests from `United States` or `Japan` to `/notglobal` or `/secret` and it will show `default.html` instead, `blockpage` is optional.
+
+#### Using mutiple `ipfilter` blocks
+
+```
+ipfilter / {
+	rule allow
+	ip 32.55.3.10
+}
+
+ipfilter /webhook {
+	rule allow
+	ip 131.133.10 155.23.2.0-50
+}
+```
+You can use as many `ipfilter` blocks as you please, the above says: block everyone but `32.55.3.10`, Unless it falls in the range `131.133.10.0`-`131.133.10.255` and requesting a path in `/webhook`
