@@ -1,8 +1,8 @@
 package ipfilter
 
 import (
-	"bytes"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -165,7 +165,7 @@ func TestCountryCodes(t *testing.T) {
 	}
 }
 
-func TestRanges(t *testing.T) {
+func TestNets(t *testing.T) {
 	TestCases := []struct {
 		ipfconf        IPFConfig
 		reqIP          string
@@ -179,12 +179,8 @@ func TestRanges(t *testing.T) {
 					PathScopes: []string{"/"},
 					BlockPage:  BlockPage,
 					IsBlock:    true,
-					Ranges: []Range{
-						{
-							net.ParseIP("243.1.3.10"),
-							net.ParseIP("243.1.3.20"),
-						},
-					},
+					Nets: parseCIDRs([]string{"243.1.3.10/31", "243.1.3.12/30",
+						"243.1.3.16/30", "243.1.3.20/32"}),
 				},
 			},
 		},
@@ -200,16 +196,7 @@ func TestRanges(t *testing.T) {
 					PathScopes: []string{"/private"},
 					BlockPage:  BlockPage,
 					IsBlock:    true,
-					Ranges: []Range{
-						{
-							net.ParseIP("243.1.3.10"),
-							net.ParseIP("243.1.3.20"),
-						},
-						{
-							net.ParseIP("202.33.44.1"),
-							net.ParseIP("202.33.44.255"),
-						},
-					},
+					Nets:       parseCIDRs([]string{"243.1.3.0/24", "202.33.44.0/24"}),
 				},
 			},
 		},
@@ -225,12 +212,9 @@ func TestRanges(t *testing.T) {
 					PathScopes: []string{"/"},
 					BlockPage:  BlockPage,
 					IsBlock:    true,
-					Ranges: []Range{
-						{
-							net.ParseIP("243.1.3.10"),
-							net.ParseIP("243.1.3.20"),
-						},
-					},
+					Nets: parseCIDRs([]string{
+						"243.1.3.10/31", "243.1.3.12/30", "243.1.3.16/30", "243.1.3.20/32",
+					}),
 				},
 			},
 		},
@@ -246,16 +230,10 @@ func TestRanges(t *testing.T) {
 					PathScopes: []string{"/eighties"},
 					BlockPage:  BlockPage,
 					IsBlock:    false,
-					Ranges: []Range{
-						{
-							net.ParseIP("243.1.3.10"),
-							net.ParseIP("243.1.3.20"),
-						},
-						{
-							net.ParseIP("80.0.0.0"),
-							net.ParseIP("80.255.255.255"),
-						},
-					},
+					Nets: parseCIDRs([]string{
+						"243.1.3.10/31", "243.1.3.12/30", "243.1.3.16/30", "243.1.3.20/32",
+						"80.0.0.0/8",
+					}),
 				},
 			},
 		},
@@ -270,16 +248,10 @@ func TestRanges(t *testing.T) {
 				{
 					PathScopes: []string{"/eighties"},
 					IsBlock:    true,
-					Ranges: []Range{
-						{
-							net.ParseIP("243.1.3.10"),
-							net.ParseIP("243.1.3.20"),
-						},
-						{
-							net.ParseIP("80.0.0.0"),
-							net.ParseIP("80.255.255.255"),
-						},
-					},
+					Nets: parseCIDRs([]string{
+						"243.1.3.10/31", "243.1.3.12/30", "243.1.3.16/30", "243.1.3.20/32",
+						"80.0.0.0/8",
+					}),
 				},
 			},
 		},
@@ -294,24 +266,11 @@ func TestRanges(t *testing.T) {
 				{
 					PathScopes: []string{"/"},
 					IsBlock:    true,
-					Ranges: []Range{
-						{
-							net.ParseIP("243.1.3.10"),
-							net.ParseIP("243.1.3.20"),
-						},
-						{
-							net.ParseIP("80.0.0.0"),
-							net.ParseIP("80.255.255.255"),
-						},
-						{
-							net.ParseIP("23.1.3.1"),
-							net.ParseIP("23.1.3.20"),
-						},
-						{
-							net.ParseIP("85.0.0.0"),
-							net.ParseIP("85.255.255.255"),
-						},
-					},
+					Nets: parseCIDRs([]string{
+						"243.1.3.10/31", "243.1.3.12/30", "243.1.3.16/30", "243.1.3.20/32",
+						"80.0.0.0/8", "23.1.3.1/32", "23.1.3.2/31", "23.1.3.4/30", "23.1.3.8/29",
+						"23.1.3.16/30", "23.1.3.20/32", "85.0.0.0/8",
+					}),
 				},
 			},
 		},
@@ -320,19 +279,14 @@ func TestRanges(t *testing.T) {
 			"",
 			http.StatusForbidden,
 		},
-		// From here on out, tests are covering single IP ranges
+		// From here on out, tests are covering single IPNets
 		{IPFConfig{
 			Paths: []IPPath{
 				{
 					PathScopes: []string{"/"},
 					BlockPage:  BlockPage,
 					IsBlock:    true,
-					Ranges: []Range{
-						{
-							net.ParseIP("8.8.8.8"),
-							net.ParseIP("8.8.8.8"),
-						},
-					},
+					Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
 				},
 			},
 		},
@@ -348,12 +302,7 @@ func TestRanges(t *testing.T) {
 					PathScopes: []string{"/"},
 					BlockPage:  BlockPage,
 					IsBlock:    false,
-					Ranges: []Range{
-						{
-							net.ParseIP("8.8.8.8"),
-							net.ParseIP("8.8.8.8"),
-						},
-					},
+					Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
 				},
 			},
 		},
@@ -369,20 +318,9 @@ func TestRanges(t *testing.T) {
 					PathScopes: []string{"/private"},
 					BlockPage:  BlockPage,
 					IsBlock:    false,
-					Ranges: []Range{
-						{
-							net.ParseIP("52.9.1.2"),
-							net.ParseIP("52.9.1.2"),
-						},
-						{
-							net.ParseIP("52.9.1.3"),
-							net.ParseIP("52.9.1.3"),
-						},
-						{
-							net.ParseIP("52.9.1.4"),
-							net.ParseIP("52.9.1.4"),
-						},
-					},
+					Nets: parseCIDRs([]string{
+						"52.9.1.2/32", "52.9.1.3/32", "52.9.1.4/32",
+					}),
 				},
 			},
 		},
@@ -398,12 +336,7 @@ func TestRanges(t *testing.T) {
 					PathScopes: []string{"/private"},
 					BlockPage:  BlockPage,
 					IsBlock:    false,
-					Ranges: []Range{
-						{
-							net.ParseIP("99.1.8.8"),
-							net.ParseIP("99.1.8.8"),
-						},
-					},
+					Nets:       parseCIDRs([]string{"99.1.8.8/32"}),
 				},
 			},
 		},
@@ -418,20 +351,11 @@ func TestRanges(t *testing.T) {
 				{
 					PathScopes: []string{"/private"},
 					IsBlock:    true,
-					Ranges: []Range{
-						{
-							net.ParseIP("52.9.1.2"),
-							net.ParseIP("52.9.1.2"),
-						},
-						{
-							net.ParseIP("52.9.1.3"),
-							net.ParseIP("52.9.1.3"),
-						},
-						{
-							net.ParseIP("52.9.1.4"),
-							net.ParseIP("52.9.1.4"),
-						},
-					},
+					Nets: parseCIDRs([]string{
+						"52.9.1.2/32",
+						"52.9.1.3/32",
+						"52.9.1.4/32",
+					}),
 				},
 			},
 		},
@@ -487,16 +411,11 @@ func TestFwdForIPs(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    true,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
 					},
 				},
 			},
-			"8.8.4.4:12345",
+			"8.8.4.4:_",
 			"8.8.8.8",
 			"/",
 			http.StatusForbidden,
@@ -508,16 +427,11 @@ func TestFwdForIPs(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    true,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
 					},
 				},
 			},
-			"8.8.4.4:12345",
+			"8.8.4.4:_",
 			"",
 			"/",
 			http.StatusOK,
@@ -529,16 +443,11 @@ func TestFwdForIPs(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    true,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
 					},
 				},
 			},
-			"8.8.8.8:12345",
+			"8.8.8.8:_",
 			"8.8.4.4",
 			"/",
 			http.StatusOK,
@@ -550,16 +459,11 @@ func TestFwdForIPs(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    false,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
 					},
 				},
 			},
-			"8.8.4.4:12345",
+			"8.8.4.4:_",
 			"8.8.8.8",
 			"/",
 			http.StatusOK,
@@ -571,16 +475,11 @@ func TestFwdForIPs(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    false,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
 					},
 				},
 			},
-			"8.8.4.4:12345",
+			"8.8.4.4:_",
 			"",
 			"/",
 			http.StatusForbidden,
@@ -592,16 +491,11 @@ func TestFwdForIPs(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    false,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
 					},
 				},
 			},
-			"8.8.8.8:12345",
+			"8.8.8.8:_",
 			"8.8.4.4",
 			"/",
 			http.StatusForbidden,
@@ -650,17 +544,12 @@ func TestStrict(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    true,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
-						Strict: true,
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
+						Strict:     true,
 					},
 				},
 			},
-			"8.8.4.4:12345",
+			"8.8.4.4:_",
 			"8.8.8.8",
 			"/",
 			http.StatusOK,
@@ -671,17 +560,12 @@ func TestStrict(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    true,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
-						Strict: true,
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
+						Strict:     true,
 					},
 				},
 			},
-			"8.8.8.8:12345",
+			"8.8.8.8:_",
 			"8.8.8.8",
 			"/",
 			http.StatusForbidden,
@@ -692,17 +576,12 @@ func TestStrict(t *testing.T) {
 					{
 						PathScopes: []string{"/"},
 						IsBlock:    true,
-						Ranges: []Range{
-							{
-								net.ParseIP("8.8.8.8"),
-								net.ParseIP("8.8.8.8"),
-							},
-						},
-						Strict: false,
+						Nets:       parseCIDRs([]string{"8.8.8.8/32"}),
+						Strict:     false,
 					},
 				},
 			},
-			"8.8.4.4:12345",
+			"8.8.4.4:_",
 			"8.8.8.8",
 			"/",
 			http.StatusForbidden,
@@ -750,9 +629,7 @@ func TestIpfilterParseSingle(t *testing.T) {
 			}`, false, IPPath{
 			PathScopes: []string{"/"},
 			IsBlock:    false,
-			Ranges: []Range{
-				{net.ParseIP("10.0.0.1"), net.ParseIP("10.0.0.1")},
-			},
+			Nets:       parseCIDRs([]string{"10.0.0.1/32"}),
 		}, nil,
 		},
 		{fmt.Sprintf(`/blog /local {
@@ -763,11 +640,12 @@ func TestIpfilterParseSingle(t *testing.T) {
 			PathScopes: []string{"/local", "/blog"},
 			IsBlock:    true,
 			BlockPage:  BlockPage,
-			Ranges: []Range{
-				{net.ParseIP("10.0.0.1"), net.ParseIP("10.0.0.150")},
-				{net.ParseIP("20.0.0.1"), net.ParseIP("20.0.0.255")},
-				{net.ParseIP("30.0.0.2"), net.ParseIP("30.0.0.2")},
-			},
+			Nets: parseCIDRs([]string{
+				"10.0.0.1/32", "10.0.0.2/31", "10.0.0.4/30", "10.0.0.8/29",
+				"10.0.0.16/28", "10.0.0.32/27", "10.0.0.64/26", "10.0.0.128/28",
+				"10.0.0.144/30", "10.0.0.148/31", "10.0.0.150/32", "20.0.0.1/32",
+				"20.0.0.2/31", "20.0.0.4/30", "20.0.0.8/29", "20.0.0.16/28",
+				"20.0.0.32/27", "20.0.0.64/26", "20.0.0.128/25", "30.0.0.2/32"}),
 		}, nil,
 		},
 		{`/ {
@@ -776,13 +654,10 @@ func TestIpfilterParseSingle(t *testing.T) {
 			}`, false, IPPath{
 			PathScopes: []string{"/"},
 			IsBlock:    false,
-			Ranges: []Range{
-				{net.ParseIP("192.168.0.0"), net.ParseIP("192.168.255.255")},
-				{net.ParseIP("10.0.0.20"), net.ParseIP("10.0.0.25")},
-				{net.ParseIP("8.8.4.4"), net.ParseIP("8.8.4.4")},
-				{net.ParseIP("182.0.0.0"), net.ParseIP("182.255.255.255")},
-				{net.ParseIP("0.0.0.0"), net.ParseIP("0.255.255.255")},
-			},
+			Nets: parseCIDRs([]string{
+				"192.168.0.0/16", "10.0.0.20/30", "10.0.0.24/31",
+				"8.8.4.4/32", "182.0.0.0/8", "0.0.0.0/8",
+			}),
 		}, nil,
 		},
 		{fmt.Sprintf(`/private /blog /local {
@@ -796,13 +671,11 @@ func TestIpfilterParseSingle(t *testing.T) {
 			IsBlock:      true,
 			BlockPage:    BlockPage,
 			CountryCodes: []string{"US", "JP", "RU", "FR"},
-			Ranges: []Range{
-				{net.ParseIP("11.10.12.0"), net.ParseIP("11.10.12.255")},
-				{net.ParseIP("192.168.8.4"), net.ParseIP("192.168.8.50")},
-				{net.ParseIP("20.20.20.20"), net.ParseIP("20.20.20.20")},
-				{net.ParseIP("255.0.0.0"), net.ParseIP("255.255.255.255")},
-				{net.ParseIP("8.8.8.8"), net.ParseIP("8.8.8.8")},
-			},
+			Nets: parseCIDRs([]string{
+				"11.10.12.0/24", "192.168.8.4/30", "192.168.8.8/29", "192.168.8.16/28",
+				"192.168.8.32/28", "192.168.8.48/31", "192.168.8.50/32", "20.20.20.20/32",
+				"255.0.0.0/8", "8.8.8.8/32",
+			}),
 		}, &maxminddb.Reader{},
 		},
 		{fmt.Sprintf(`/private /blog /local /contact {
@@ -816,13 +689,11 @@ func TestIpfilterParseSingle(t *testing.T) {
 			IsBlock:      true,
 			BlockPage:    BlockPage,
 			CountryCodes: []string{"US", "JP", "RU", "FR"},
-			Ranges: []Range{
-				{net.ParseIP("11.10.12.0"), net.ParseIP("11.10.12.255")},
-				{net.ParseIP("192.168.8.4"), net.ParseIP("192.168.8.50")},
-				{net.ParseIP("20.20.20.20"), net.ParseIP("20.20.20.20")},
-				{net.ParseIP("255.0.0.0"), net.ParseIP("255.255.255.255")},
-				{net.ParseIP("8.8.8.8"), net.ParseIP("8.8.8.8")},
-			},
+			Nets: parseCIDRs([]string{
+				"11.10.12.0/24", "192.168.8.4/30", "192.168.8.8/29", "192.168.8.16/28",
+				"192.168.8.32/28", "192.168.8.48/31", "192.168.8.50/32", "20.20.20.20/32",
+				"255.0.0.0/8", "8.8.8.8/32",
+			}),
 		}, &maxminddb.Reader{},
 		},
 		{`/ {
@@ -888,10 +759,16 @@ func TestIpfilterParseSingle(t *testing.T) {
 				i, test.expectedPath.CountryCodes, actualPath.CountryCodes)
 		}
 
-		// Ranges
-		if !reflect.DeepEqual(actualPath.Ranges, test.expectedPath.Ranges) {
-			t.Errorf("Test %d expected 'Ranges': %s\ngot: %s",
-				i, prettyPrintRanges(test.expectedPath.Ranges), prettyPrintRanges(actualPath.Ranges))
+		// Nets
+		if len(actualPath.Nets) != len(test.expectedPath.Nets) {
+			t.Errorf("Test %d expected 'Nets': %s\ngot: %s",
+				i, test.expectedPath.Nets, actualPath.Nets)
+		}
+		for n := range actualPath.Nets {
+			if actualPath.Nets[n].String() != test.expectedPath.Nets[n].String() {
+				t.Errorf("Test %d expected : %s\ngot: %s",
+					i, test.expectedPath.Nets[n], actualPath.Nets[n])
+			}
 		}
 
 		// DBHandler
@@ -921,7 +798,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter /allowed {
 				rule allow
 				ip 192.168.1.10
-			}`, false, "192.168.1.10:12345", "/", http.StatusForbidden,
+			}`, false, "192.168.1.10:_", "/", http.StatusForbidden,
 		},
 		{
 			`ipfilter / {
@@ -931,7 +808,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter /allowed {
 				rule allow
 				ip 192.168.1.10
-			}`, false, "192.168.1.10:12345", "/allowed", http.StatusOK,
+			}`, false, "192.168.1.10:_", "/allowed", http.StatusOK,
 		},
 		{
 			`ipfilter / {
@@ -941,7 +818,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter /allowed {
 				rule allow
 				ip 192.168.1.10
-			}`, false, "212.168.23.13:12345", "/", http.StatusOK,
+			}`, false, "212.168.23.13:_", "/", http.StatusOK,
 		},
 		{
 			`ipfilter / {
@@ -951,7 +828,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter /allowed {
 				rule allow
 				ip 192.168.1.10
-			}`, false, "212.168.23.13:12345", "/allowed", http.StatusForbidden,
+			}`, false, "212.168.23.13:_", "/allowed", http.StatusForbidden,
 		},
 		{
 			fmt.Sprintf(`ipfilter / {
@@ -962,7 +839,7 @@ func TestMultipleIpFilters(t *testing.T) {
 				rule allow
 				country US
 				database %s
-			}`, DataBase), false, "8.8.8.8:12345", "/allowed", http.StatusOK,
+			}`, DataBase), false, "8.8.8.8:_", "/allowed", http.StatusOK,
 		},
 		{
 			fmt.Sprintf(`ipfilter /local {
@@ -981,7 +858,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter / {
 				rule allow
 				ip 212.222.222.1
-			}`, DataBase), false, "192.168.1.9:12345", "/private", http.StatusForbidden,
+			}`, DataBase), false, "192.168.1.9:_", "/private", http.StatusForbidden,
 		},
 		{
 			fmt.Sprintf(`ipfilter /local {
@@ -1000,7 +877,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter / {
 				rule allow
 				ip 212.222.222.1
-			}`, DataBase), false, "212.222.222.1:12345", "/list", http.StatusOK,
+			}`, DataBase), false, "212.222.222.1:_", "/list", http.StatusOK,
 		},
 		{
 			fmt.Sprintf(`ipfilter /local {
@@ -1019,7 +896,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter / {
 				rule allow
 				ip 212.222.222.1
-			}`, DataBase), false, "5.175.96.22:12345", "/secret", http.StatusForbidden,
+			}`, DataBase), false, "5.175.96.22:_", "/secret", http.StatusForbidden,
 		},
 		{
 			fmt.Sprintf(`ipfilter /local {
@@ -1038,7 +915,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter / {
 				rule allow
 				ip 212.222.222.1
-			}`, DataBase), false, "192.168.1.14:12345", "/local", http.StatusOK,
+			}`, DataBase), false, "192.168.1.14:_", "/local", http.StatusOK,
 		},
 		{
 			fmt.Sprintf(`ipfilter /local {
@@ -1057,7 +934,7 @@ func TestMultipleIpFilters(t *testing.T) {
 			ipfilter / {
 				rule allow
 				ip 212.222.222.1
-			}`, DataBase), false, "192.168.1.16:12345", "/private", http.StatusForbidden,
+			}`, DataBase), false, "192.168.1.16:_", "/private", http.StatusForbidden,
 		},
 	}
 
@@ -1101,11 +978,110 @@ func TestMultipleIpFilters(t *testing.T) {
 	}
 }
 
-// helps printRanges for the Ranges tests
-func prettyPrintRanges(ranges []Range) string {
-	buf := new(bytes.Buffer)
-	for _, r := range ranges {
-		buf.WriteString(fmt.Sprintf("[%s - %s] ", r.start.String(), r.end.String()))
+func TestIPv6(t *testing.T) {
+	TestCases := []struct {
+		inputIpfilterConfig string
+		shouldErr           bool
+		reqIP               string
+		reqPath             string
+		expectedStatus      int
+	}{
+		{
+			`ipfilter / {
+				rule allow
+				ip 2001:db8:1234::/48
+			}`, false, "[2001:db8:1234:0000:0000:0000:0000:0000]:_", "/", http.StatusOK,
+		},
+		{
+			`ipfilter / {
+				rule allow
+				ip 2001:db8:1234::/48
+			}`, false, "[2001:db8:1234:ffff:ffff:ffff:ffff:ffff]:_", "/", http.StatusOK,
+		},
+		{
+			`ipfilter / {
+				rule allow
+				ip 2001:db8:1234::/48
+			}`, false, "[2001:db8:1244:0000:0000:0000:0000:0000]:_", "/", http.StatusForbidden,
+		},
+		{
+			`ipfilter / {
+				rule allow
+				ip 8.8.8.8 2001:db8:85a3:8d3:1319:8a2e:370:7348 8.8.4.4
+			}`, false, "[2001:db8:85a3:8d3:1319:8a2e:370:7338]:_", "/", http.StatusForbidden,
+		},
+		{
+			`ipfilter / {
+				rule allow
+				ip 8.8.8.8 2001:db8:85a3:8d3:1319:8a2e:370:7348 8.8.4.4
+			}`, false, "[2001:db8:85a3:8d3:1319:8a2e:370:7348]:_", "/", http.StatusOK,
+		},
+		{
+			`ipfilter / {
+				rule allow
+				ip 2001:db8:85a3::8a2e:370:7334 10.0.0 192.168.1.5-40
+			}`, false, "192.168.1.33:_", "/", http.StatusOK,
+		},
+		{
+			`ipfilter / {
+				rule allow
+				ip 2001:db8:85a3::8a2e:370:7334/64 10.0.0
+			}`, false, "10.0.0.5:_", "/", http.StatusOK,
+		},
 	}
-	return buf.String()
+
+	for i, tc := range TestCases {
+		// Parse the text config
+		c := caddy.NewTestController("http", tc.inputIpfilterConfig)
+		config, err := ipfilterParse(c)
+
+		if err != nil && !tc.shouldErr {
+			t.Errorf("Test %d failed, error generated while it should not: %v", i, err)
+		} else if err == nil && tc.shouldErr {
+			t.Errorf("Test %d failed, no error generated while it should", i)
+		} else if err != nil {
+			continue
+		}
+
+		ipf := IPFilter{
+			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+				return http.StatusOK, nil
+			}),
+			Config: config,
+		}
+
+		req, err := http.NewRequest("GET", tc.reqPath, nil)
+		if err != nil {
+			t.Fatalf("Could not create HTTP request: %v", err)
+		}
+
+		req.RemoteAddr = tc.reqIP
+
+		rec := httptest.NewRecorder()
+
+		status, err := ipf.ServeHTTP(rec, req)
+		if err != nil {
+			t.Fatalf("Test %d failed. Error generated:\n%v", i, err)
+		}
+		if status != tc.expectedStatus {
+			t.Fatalf("Test %d failed. Expected StatusCode: '%d', Got: '%d'\nTestCase: %v\n",
+				i, tc.expectedStatus, status, tc)
+		}
+	}
+
+}
+
+// parseCIDRs takes a slice of IPs as strings and returns them parsed via net.ParseCIDR as []*net.IPNet
+func parseCIDRs(ips []string) []*net.IPNet {
+	ipnets := make([]*net.IPNet, len(ips))
+	for i, ip := range ips {
+		_, ipnet, err := net.ParseCIDR(ip)
+		if err != nil {
+			log.Fatalf("ParseCIDR can't parse: %s\nError: %s", ip, err)
+		}
+
+		ipnets[i] = ipnet
+	}
+
+	return ipnets
 }

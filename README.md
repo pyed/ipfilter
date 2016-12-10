@@ -9,16 +9,16 @@ ipfilter is a middleware for [Caddy](http://caddyserver.com)
 ```
 ipfilter / {
 	rule block
-	ip 192.168 213.42.9.10-50 214.1.1.10
+	ip 70.1.128.0/19 2001:db8::/122 9.12.20.16
 }
 ```
-`caddy` will block any clients with IPs that fall into one of these two ranges `192.168.0.0` to `192.168.255.255` and `213.42.9.10` to `213.42.9.50` , or a client that has an IP of `214.1.1.10` explicitly, ranges are inclusive, which means `213.42.9.50` will get blocked.
+`caddy` will block any clients with IPs that fall into one of these two ranges `70.1.128.0/19` and `2001:db8::/122` , or a client that has an IP of `9.12.20.16` explicitly.
 
 ```
 ipfilter / {
 	rule allow
 	blockpage default.html
-	ip 55.3.4.20 55.3.4.30
+	ip 55.3.4.20 2e80::20:f8ff:fe31:77cf
 }
 ```
 `caddy` will serve only these 2 IPs, eveyone else will get `default.html`
@@ -55,7 +55,10 @@ ipfilter / {
 
 ipfilter /webhook {
 	rule allow
-	ip 131.133.10
+	ip 192.168.1.0/24
 }
 ```
-You can use as many `ipfilter` blocks as you please, the above says: block everyone but `32.55.3.10`, Unless it falls in the range `131.133.10.0`-`131.133.10.255` and requesting a path in `/webhook`
+You can use as many `ipfilter` blocks as you please, the above says: block everyone but `32.55.3.10`, Unless it falls in `192.168.1.0/24` and requesting a path in `/webhook`.
+
+#### Backward compatibility
+`ipfilter` Now support [CIDR notation](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing), and it is the recommended way of specifiying ranges, The old formats of ranging over IPs will get converted to CIDR via [range2CIDRs](https://github.com/pyed/ipfilter/blob/master/range2CIDRs.go) only for the purpose of backward compatibility.

@@ -1,8 +1,8 @@
 package ipfilter
 
 import (
-	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -26,7 +26,7 @@ type IPPath struct {
 	PathScopes   []string
 	BlockPage    string
 	CountryCodes []string
-	Ranges       []Range
+	Nets         []*net.IPNet
 	IsBlock      bool
 	Strict       bool
 }
@@ -35,20 +35,6 @@ type IPPath struct {
 type IPFConfig struct {
 	Paths     []IPPath
 	DBHandler *maxminddb.Reader // Database's handler if it gets opened.
-}
-
-// Range is a pair of two 'net.IP'.
-type Range struct {
-	start net.IP
-	end   net.IP
-}
-
-// InRange is a method of 'Range' takes a pointer to net.IP, returns true if in range, false otherwise.
-func (rng Range) InRange(ip *net.IP) bool {
-	if bytes.Compare(*ip, rng.start) >= 0 && bytes.Compare(*ip, rng.end) <= 0 {
-		return true
-	}
-	return false
 }
 
 // OnlyCountry is used to fetch only the country's code from 'mmdb'.
@@ -175,9 +161,9 @@ func (ipf IPFilter) ShouldAllow(path IPPath, r *http.Request) (bool, string, err
 				}
 			}
 
-			if len(path.Ranges) != 0 {
-				for _, rng := range path.Ranges {
-					if rng.InRange(&clientIP) {
+			if len(path.Nets) != 0 {
+				for _, rng := range path.Nets {
+					if rng.Contains(clientIP) {
 						rs.inRange = true
 						break
 					}
@@ -228,7 +214,25 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 }
 
 // parseIP parses a string to an IP range.
-func parseIP(ip string) (Range, error) {
+func parseIP(ip string) ([]*net.IPNet, error) {
+	// CIDR notation
+	_, ipnet, err := net.ParseCIDR(ip)
+	if err == nil {
+		return []*net.IPNet{ipnet}, nil
+	}
+
+	// Singular IP
+	parsedIP := net.ParseIP(ip)
+	if parsedIP != nil {
+		mask := len(parsedIP) * 8
+		return []*net.IPNet{{
+			IP:   parsedIP,
+			Mask: net.CIDRMask(mask, mask),
+		}}, nil
+	}
+
+	// for backward compatibility, convert ranges into CIDR notation.
+	parseError := fmt.Errorf("Can't parse IP: %s", ip)
 	// check if the ip isn't complete;
 	// e.g. 192.168 -> Range{"192.168.0.0", "192.168.255.255"}
 	dotSplit := strings.Split(ip, ".")
@@ -242,10 +246,10 @@ func parseIP(ip string) (Range, error) {
 		start := net.ParseIP(strings.Join(startR, "."))
 		end := net.ParseIP(strings.Join(dotSplit, "."))
 		if start.To4() == nil || end.To4() == nil {
-			return Range{start, end}, errors.New("Can't parse IPv4 address")
+			return nil, parseError
 		}
 
-		return Range{start, end}, nil
+		return range2CIDRs(start, end), nil
 	}
 
 	// try to split on '-' to see if it is a range of ips e.g. 1.1.1.1-10
@@ -254,7 +258,7 @@ func parseIP(ip string) (Range, error) {
 		start := net.ParseIP(splitted[0])
 		// make sure that we got a valid IPv4 IP.
 		if start.To4() == nil {
-			return Range{start, start}, errors.New("Can't parse IPv4 address")
+			return nil, parseError
 		}
 
 		// split the start of the range on "." and switch the last field with splitted[1], e.g 1.1.1.1 -> 1.1.1.10
@@ -264,20 +268,14 @@ func parseIP(ip string) (Range, error) {
 
 		// parse the end range.
 		if end.To4() == nil {
-			return Range{start, end}, errors.New("Can't parse IPv4 address")
+			return nil, parseError
 		}
 
-		return Range{start, end}, nil
+		return range2CIDRs(start, end), nil
 	}
 
-	// the IP is not a range.
-	parsedIP := net.ParseIP(ip)
-	if parsedIP.To4() == nil {
-		return Range{parsedIP, parsedIP}, errors.New("Can't parse IPv4 address")
-	}
-
-	// return singular IPs as a range e.g Range{192.168.1.100, 192.168.1.100}
-	return Range{parsedIP, parsedIP}, nil
+	// Failed to parse IP
+	return nil, parseError
 }
 
 // ipfilterParseSingle parses a single ipfilter {} block from the caddy config.
@@ -353,7 +351,7 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 					return cPath, c.Err("ipfilter: " + err.Error())
 				}
 
-				cPath.Ranges = append(cPath.Ranges, ipRange)
+				cPath.Nets = append(cPath.Nets, ipRange...)
 			}
 		case "strict":
 			cPath.Strict = true
@@ -378,7 +376,7 @@ func ipfilterParse(c *caddy.Controller) (IPFConfig, error) {
 		if len(path.CountryCodes) != 0 {
 			hasCountryCodes = true
 		}
-		if len(path.Ranges) != 0 {
+		if len(path.Nets) != 0 {
 			hasRanges = true
 		}
 
