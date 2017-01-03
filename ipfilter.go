@@ -108,7 +108,8 @@ func getClientIP(r *http.Request, strict bool) (net.IP, error) {
 
 	// Use the client ip from the 'X-Forwarded-For' header, if available.
 	if fwdFor := r.Header.Get("X-Forwarded-For"); fwdFor != "" && !strict {
-		ip = fwdFor
+		ips := strings.Split(fwdFor, ", ")
+		ip = ips[0]
 	} else {
 		// Otherwise, get the client ip from the request remote address.
 		var err error
