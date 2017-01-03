@@ -2,11 +2,16 @@ package ipfilter
 
 // https://groups.google.com/forum/m/#!topic/golang-nuts/rJvVwk4jwjQ
 
-import "net"
+import (
+	"fmt"
+	"net"
+)
 
 var allFF = net.ParseIP("255.255.255.255").To4()
 
 func range2CIDRs(a1, a2 net.IP) (r []*net.IPNet) {
+	// Warn users that they're using an old method of ranging
+	fmt.Println("ipfilter Warning: You are using an old method of ranging over IPs, it's highly recommended to switch over to CIDR notation, For more: https://caddyserver.com/docs/ipfilter")
 	maxLen := 32
 	a1 = a1.To4()
 	a2 = a2.To4()
