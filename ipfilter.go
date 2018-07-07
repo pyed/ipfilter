@@ -55,7 +55,7 @@ func (s *Status) Any() bool {
 }
 
 // block will take care of blocking
-func block(blockPage string, w *http.ResponseWriter) (int, error) {
+func block(blockPage string, w http.ResponseWriter) (int, error) {
 	if blockPage != "" {
 		bp, err := os.Open(blockPage)
 		if err != nil {
@@ -63,7 +63,8 @@ func block(blockPage string, w *http.ResponseWriter) (int, error) {
 		}
 		defer bp.Close()
 
-		if _, err := io.Copy(*w, bp); err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := io.Copy(w, bp); err != nil {
 			return http.StatusInternalServerError, err
 		}
 		// we wrote the blockpage, return OK.
@@ -209,7 +210,7 @@ func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, erro
 	}
 
 	if !allow {
-		return block(blockPage, &w)
+		return block(blockPage, w)
 	}
 	return ipf.Next.ServeHTTP(w, r)
 }
