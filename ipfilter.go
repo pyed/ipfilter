@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -26,6 +28,7 @@ type IPPath struct {
 	PathScopes   []string
 	BlockPage    string
 	CountryCodes []string
+	PrefixDir    string
 	Nets         []*net.IPNet
 	IsBlock      bool
 	Strict       bool
@@ -172,6 +175,10 @@ func (ipf IPFilter) ShouldAllow(path IPPath, r *http.Request) (bool, string, err
 				}
 			}
 
+			if ipf.PrefixDirBlocked(clientIP, path) {
+				rs.inRange = true
+			}
+
 			scopeMatched = scope
 			if rs.Any() {
 				// Rule matched, if the rule has IsBlock = true then we have to deny access
@@ -188,6 +195,39 @@ func (ipf IPFilter) ShouldAllow(path IPPath, r *http.Request) (bool, string, err
 
 	// no scope match, pass-through.
 	return allow, scopeMatched, nil
+}
+
+func (ipf IPFilter) PrefixDirBlocked(clientIP net.IP, path IPPath) bool {
+	if path.PrefixDir == "" {
+		return false
+	}
+
+	fname := clientIP.String()
+
+	// Check the "flat" namespace.
+	blacklist_path := filepath.Join(path.PrefixDir, fname)
+	if _, err := os.Stat(blacklist_path); err == nil {
+		return true
+	}
+
+	// Check the "sharded" namespace.
+	c := strings.SplitN(fname, ".", 3) // shard IPv4 address
+	if len(c) != 3 {
+		c = strings.SplitN(fname, ":", 3) // shard IPv6 address
+		if len(c) != 3 {
+			// This should be a "can't happen" situation. Perhaps there is an
+			// IP address type we don't know how to shard. But rather than
+			// blow up below just log the problem and grant access.
+			log.Println("ipfilter: Could not shard address:", fname)
+			return false
+		}
+	}
+	blacklist_path = filepath.Join(path.PrefixDir, c[0], c[1], fname)
+	if _, err := os.Stat(blacklist_path); err == nil {
+		return true
+	}
+
+	return false
 }
 
 func (ipf IPFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
@@ -357,6 +397,18 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 			}
 		case "strict":
 			cPath.Strict = true
+		case "prefix_dir":
+			if !c.NextArg() {
+				return cPath, c.ArgErr()
+			}
+
+			// Verify the blacklist path prefix exists and is a directory.
+			prefix_dir := c.Val()
+			if statb, err := os.Stat(prefix_dir); os.IsNotExist(err) || !statb.IsDir() {
+				return cPath, c.Err("ipfilter: No such blacklist prefix dir: " + prefix_dir)
+			}
+
+			cPath.PrefixDir = prefix_dir
 		}
 	}
 
@@ -367,7 +419,7 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 func ipfilterParse(c *caddy.Controller) (IPFConfig, error) {
 	var config IPFConfig
 
-	var hasCountryCodes, hasRanges bool
+	var hasCountryCodes, hasRanges, hasPrefixDir bool
 
 	for c.Next() {
 		path, err := ipfilterParseSingle(&config, c)
@@ -381,6 +433,9 @@ func ipfilterParse(c *caddy.Controller) (IPFConfig, error) {
 		if len(path.Nets) != 0 {
 			hasRanges = true
 		}
+		if path.PrefixDir != "" {
+			hasPrefixDir = true
+		}
 
 		config.Paths = append(config.Paths, path)
 	}
@@ -390,9 +445,9 @@ func ipfilterParse(c *caddy.Controller) (IPFConfig, error) {
 		return config, c.Err("ipfilter: Database is required to block/allow by country")
 	}
 
-	// needs atleast one of the three.
-	if !hasCountryCodes && !hasRanges {
-		return config, c.Err("ipfilter: No IPs or Country codes has been provided")
+	// Must specify at least one of these subdirectives.
+	if !hasCountryCodes && !hasRanges && !hasPrefixDir {
+		return config, c.Err("ipfilter: No IPs, Country codes, or prefix dir has been provided")
 	}
 
 	return config, nil

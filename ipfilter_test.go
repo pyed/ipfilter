@@ -17,11 +17,13 @@ import (
 const (
 	// 'GeoLite2.mmdb' taken from 'MaxMind.com'
 	// 'https://dev.maxmind.com/geoip/geoip2/geolite2/'
-	DataBase  = "./testdata/GeoLite2.mmdb"
-	BlockPage = "./testdata/blockpage.html"
-	Allow     = "allow"
-	Block     = "block"
-	BlockMsg  = "You are not allowed here"
+	BlacklistPrefix = "./testdata/blacklist"
+	WhitelistPrefix = "./testdata/whitelist"
+	DataBase        = "./testdata/GeoLite2.mmdb"
+	BlockPage       = "./testdata/blockpage.html"
+	Allow           = "allow"
+	Block           = "block"
+	BlockMsg        = "You are not allowed here"
 )
 
 func TestCountryCodes(t *testing.T) {
@@ -165,6 +167,132 @@ func TestCountryCodes(t *testing.T) {
 	}
 }
 
+func TestPrefixDir(t *testing.T) {
+	TestCases := []struct {
+		ipfconf        IPFConfig
+		reqIP          string
+		scope          string
+		expectedBody   string
+		expectedStatus int
+	}{
+		// Non blacklisted address should be okay.
+		{IPFConfig{
+			Paths: []IPPath{
+				{
+					PathScopes: []string{"/"},
+					IsBlock:    true,
+					PrefixDir:  BlacklistPrefix,
+				},
+			},
+		},
+			"243.1.3.15:_",
+			"/",
+			"",
+			http.StatusOK,
+		},
+
+		// "Flat" blacklisted address should be forbidden. Note that IPv6
+		// "::1" is always a "flat" address as it has no leading non-zero
+		// components and thus can't be sharded.
+		{IPFConfig{
+			Paths: []IPPath{
+				{
+					PathScopes: []string{"/"},
+					IsBlock:    true,
+					PrefixDir:  BlacklistPrefix,
+				},
+			},
+		},
+			"[::1]:_",
+			"/",
+			"",
+			http.StatusForbidden,
+		},
+
+		// "Sharded" blacklisted IPv6 address should be forbidden.
+		{IPFConfig{
+			Paths: []IPPath{
+				{
+					PathScopes: []string{"/"},
+					IsBlock:    true,
+					PrefixDir:  BlacklistPrefix,
+				},
+			},
+		},
+			"[1234:abcd::1]:_",
+			"/",
+			"",
+			http.StatusForbidden,
+		},
+
+		// "Sharded" blacklisted IPv4 address should be forbidden.
+		{IPFConfig{
+			Paths: []IPPath{
+				{
+					PathScopes: []string{"/"},
+					IsBlock:    true,
+					PrefixDir:  BlacklistPrefix,
+				},
+			},
+		},
+			//"[::1]:_",
+			"192.168.1.2:_",
+			"/",
+			"",
+			http.StatusForbidden,
+		},
+
+		// "Flat" whitelisted IPv4 address should be okay even if the
+		// preceding rule would have blacklisted it.
+		{IPFConfig{
+			Paths: []IPPath{
+				{
+					PathScopes: []string{"/"},
+					IsBlock:    true,
+					Nets:       parseCIDRs([]string{"127.0.0.1/32"}),
+				},
+				{
+					PathScopes: []string{"/"},
+					IsBlock:    false,
+					PrefixDir:  WhitelistPrefix,
+				},
+			},
+		},
+			"127.0.0.1:_",
+			"/hello",
+			"",
+			http.StatusOK,
+		},
+	}
+
+	for _, tc := range TestCases {
+		ipf := IPFilter{
+			Next: httpserver.HandlerFunc(func(w http.ResponseWriter, r *http.Request) (int, error) {
+				return http.StatusOK, nil
+			}),
+			Config: tc.ipfconf,
+		}
+		req, err := http.NewRequest("GET", tc.scope, nil)
+		if err != nil {
+			t.Fatalf("Could not create HTTP request: %v", err)
+		}
+
+		req.RemoteAddr = tc.reqIP
+
+		rec := httptest.NewRecorder()
+
+		status, _ := ipf.ServeHTTP(rec, req)
+		if status != tc.expectedStatus {
+			t.Fatalf("Expected StatusCode: '%d', Got: '%d'\nTestCase: %v\n",
+				tc.expectedStatus, status, tc)
+		}
+
+		if rec.Body.String() != tc.expectedBody {
+			t.Fatalf("Expected Body: '%s', Got: '%s'\nTestCase: %v\n",
+				tc.expectedBody, rec.Body.String(), tc)
+		}
+	}
+}
 func TestNets(t *testing.T) {
 	TestCases := []struct {
 		ipfconf        IPFConfig
