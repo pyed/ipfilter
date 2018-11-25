@@ -751,6 +751,27 @@ func TestIpfilterParseSingle(t *testing.T) {
 		expectedPath        IPPath
 		DBHandler           *maxminddb.Reader
 	}{
+		// No `rule` directive is an error.
+		{`/ {
+			ip 10.0.0.1
+			}`, true, IPPath{
+			PathScopes: []string{"/"},
+			IsBlock:    false,
+			Nets:       parseCIDRs([]string{"10.0.0.1/32"}),
+		}, nil,
+		},
+		// Two `rule` directives is an error.
+		{`/ {
+			rule block
+			ip 10.0.0.1
+			rule allow
+			ip 10.0.0.2
+			}`, true, IPPath{
+			PathScopes: []string{"/"},
+			IsBlock:    true,
+			Nets:       parseCIDRs([]string{"10.0.0.1/32"}),
+		}, nil,
+		},
 		{`/ {
 			rule allow
 			ip 10.0.0.1

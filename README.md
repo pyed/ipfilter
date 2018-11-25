@@ -25,6 +25,7 @@ ipfilter / {
 
 ```
 ipfilter / {
+	rule block
 	prefix_dir blacklisted
 }
 ```
@@ -46,9 +47,11 @@ the file in a subdirectory based on the first two components
 of the address. For example, *blacklisted/127/0/127.0.0.1* or
 *blacklisted/2601/647/2601:647:4601:fa93:1865:4b6c:d055:3f3*.
 
-If you don't explicitly add a `rule block` directive the default is
-`rule allow` which is probably not what you want. Note that you can setup
-different IP prefix directories to both blacklist and whitelist addresses.
+Note that you can also whitelist IP addresses using this mechanism by
+specifying `rule allow`. This may be useful when it follows a more general
+blocking rule (e.g., by country) and you want to selectively allow some
+addresses through but don't want to hardcode the addresses in the Caddy
+config file.
 
 This mechanism is most useful when coupled with automated monitoring of your
 web server activity to detect signals that your server is under attack from

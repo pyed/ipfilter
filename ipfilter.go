@@ -323,6 +323,7 @@ func parseIP(ip string) ([]*net.IPNet, error) {
 // ipfilterParseSingle parses a single ipfilter {} block from the caddy config.
 func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error) {
 	var cPath IPPath
+	rule_type_specified := false
 
 	// Get PathScopes
 	cPath.PathScopes = c.RemainingArgs()
@@ -341,6 +342,9 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 			if !c.NextArg() {
 				return cPath, c.ArgErr()
 			}
+			if rule_type_specified {
+				return cPath, c.Err("ipfilter: Only one 'rule' directive per block allowed")
+			}
 
 			rule := c.Val()
 			if rule == "block" {
@@ -348,6 +352,7 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 			} else if rule != "allow" {
 				return cPath, c.Err("ipfilter: Rule should be 'block' or 'allow'")
 			}
+			rule_type_specified = true
 		case "database":
 			if !c.NextArg() {
 				return cPath, c.ArgErr()
@@ -412,6 +417,9 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 		}
 	}
 
+	if !rule_type_specified {
+		return cPath, c.Err("ipfilter: There must be one 'rule' directive per block")
+	}
 	return cPath, nil
 }
 
