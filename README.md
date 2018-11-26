@@ -30,7 +30,7 @@ ipfilter / {
 }
 ```
 `caddy` will block any client IP that appears as a file name in the
-*blacklisted* directory. A relative pathname is relative to the CWD when
+`blacklisted` directory. A relative pathname is relative to the CWD when
 `caddy` is started. When putting the blacklisted directory in the web
 server document tree you should also add an `internal` directive to
 ensure those files are not visible via HTTP GET requests. For example,
@@ -38,14 +38,14 @@ ensure those files are not visible via HTTP GET requests. For example,
 locate the blacklist directory outside the document tree.
 
 You can create the file in the root of the blacklist directory. This is
-known as using a "flat" namespace. For example, *blacklisted/127.0.0.1*
-or *blacklisted/2601:647:4601:fa93:1865:4b6c:d055:3f3*. However,
+known as using a "flat" namespace. For example, `blacklisted/127.0.0.1`
+or `blacklisted/2601:647:4601:fa93:1865:4b6c:d055:3f3`. However,
 putting thousands of files in a single directory may cause
 poor performance of the lookup function. So you can also,
 and should, use a "sharded" namespace. This involves creating
 the file in a subdirectory based on the first two components
-of the address. For example, *blacklisted/127/0/127.0.0.1* or
-*blacklisted/2601/647/2601:647:4601:fa93:1865:4b6c:d055:3f3*.
+of the address. For example, `blacklisted/127/0/127.0.0.1` or
+`blacklisted/2601/647/2601:647:4601:fa93:1865:4b6c:d055:3f3`.
 
 Note that you can also whitelist IP addresses using this mechanism by
 specifying `rule allow`. This may be useful when it follows a more general

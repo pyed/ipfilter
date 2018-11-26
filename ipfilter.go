@@ -197,6 +197,7 @@ func (ipf IPFilter) ShouldAllow(path IPPath, r *http.Request) (bool, string, err
 	return allow, scopeMatched, nil
 }
 
+// PrefixDirBlocked takes an IP and a path and decides to allow or block based on prefix_dir.
 func (ipf IPFilter) PrefixDirBlocked(clientIP net.IP, path IPPath) bool {
 	if path.PrefixDir == "" {
 		return false
@@ -205,8 +206,8 @@ func (ipf IPFilter) PrefixDirBlocked(clientIP net.IP, path IPPath) bool {
 	fname := clientIP.String()
 
 	// Check the "flat" namespace.
-	blacklist_path := filepath.Join(path.PrefixDir, fname)
-	if _, err := os.Stat(blacklist_path); err == nil {
+	blacklistPath := filepath.Join(path.PrefixDir, fname)
+	if _, err := os.Stat(blacklistPath); err == nil {
 		return true
 	}
 
@@ -222,8 +223,8 @@ func (ipf IPFilter) PrefixDirBlocked(clientIP net.IP, path IPPath) bool {
 			return false
 		}
 	}
-	blacklist_path = filepath.Join(path.PrefixDir, c[0], c[1], fname)
-	if _, err := os.Stat(blacklist_path); err == nil {
+	blacklistPath = filepath.Join(path.PrefixDir, c[0], c[1], fname)
+	if _, err := os.Stat(blacklistPath); err == nil {
 		return true
 	}
 
@@ -323,7 +324,7 @@ func parseIP(ip string) ([]*net.IPNet, error) {
 // ipfilterParseSingle parses a single ipfilter {} block from the caddy config.
 func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error) {
 	var cPath IPPath
-	rule_type_specified := false
+	ruleTypeSpecified := false
 
 	// Get PathScopes
 	cPath.PathScopes = c.RemainingArgs()
@@ -342,7 +343,7 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 			if !c.NextArg() {
 				return cPath, c.ArgErr()
 			}
-			if rule_type_specified {
+			if ruleTypeSpecified {
 				return cPath, c.Err("ipfilter: Only one 'rule' directive per block allowed")
 			}
 
@@ -352,7 +353,7 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 			} else if rule != "allow" {
 				return cPath, c.Err("ipfilter: Rule should be 'block' or 'allow'")
 			}
-			rule_type_specified = true
+			ruleTypeSpecified = true
 		case "database":
 			if !c.NextArg() {
 				return cPath, c.ArgErr()
@@ -408,16 +409,16 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 			}
 
 			// Verify the blacklist path prefix exists and is a directory.
-			prefix_dir := c.Val()
-			if statb, err := os.Stat(prefix_dir); os.IsNotExist(err) || !statb.IsDir() {
-				return cPath, c.Err("ipfilter: No such blacklist prefix dir: " + prefix_dir)
+			prefixDir := c.Val()
+			if statb, err := os.Stat(prefixDir); os.IsNotExist(err) || !statb.IsDir() {
+				return cPath, c.Err("ipfilter: No such blacklist prefix dir: " + prefixDir)
 			}
 
-			cPath.PrefixDir = prefix_dir
+			cPath.PrefixDir = prefixDir
 		}
 	}
 
-	if !rule_type_specified {
+	if !ruleTypeSpecified {
 		return cPath, c.Err("ipfilter: There must be one 'rule' directive per block")
 	}
 	return cPath, nil
