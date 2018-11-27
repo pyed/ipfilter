@@ -383,10 +383,11 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 			}
 			cPath.BlockPage = blockpage
 		case "country":
-			cPath.CountryCodes = c.RemainingArgs()
-			if len(cPath.CountryCodes) == 0 {
+			countryCodes := c.RemainingArgs()
+			if len(countryCodes) == 0 {
 				return cPath, c.ArgErr()
 			}
+			cPath.CountryCodes = append(cPath.CountryCodes, countryCodes...)
 		case "ip":
 			ips := c.RemainingArgs()
 			if len(ips) == 0 {
@@ -402,18 +403,19 @@ func ipfilterParseSingle(config *IPFConfig, c *caddy.Controller) (IPPath, error)
 				cPath.Nets = append(cPath.Nets, ipRange...)
 			}
 		case "strict":
-			cPath.Strict = true
-		case "prefix_dir":
-			if !c.NextArg() {
+			if c.NextArg() {
 				return cPath, c.ArgErr()
 			}
-
-			// Verify the blacklist path prefix exists and is a directory.
+			cPath.Strict = true
+		case "prefix_dir":
+			if !c.NextArg() || cPath.PrefixDir != "" {
+				return cPath, c.ArgErr()
+			}
+			// Verify the IP address path prefix exists and is a directory.
 			prefixDir := c.Val()
 			if statb, err := os.Stat(prefixDir); os.IsNotExist(err) || !statb.IsDir() {
 				return cPath, c.Err("ipfilter: No such blacklist prefix dir: " + prefixDir)
 			}
-
 			cPath.PrefixDir = prefixDir
 		}
 	}
