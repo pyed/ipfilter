@@ -204,11 +204,22 @@ func (ipf IPFilter) PrefixDirBlocked(clientIP net.IP, path IPPath) bool {
 	}
 
 	fname := clientIP.String()
+	fname_variant := ""
+	is_ipv6 := clientIP.To4() == nil
+	if is_ipv6 {
+		fname_variant = strings.ReplaceAll(fname, ":", "=")
+	}
 
 	// Check the "flat" namespace.
 	blacklistPath := filepath.Join(path.PrefixDir, fname)
 	if _, err := os.Stat(blacklistPath); err == nil {
 		return true
+	}
+	if is_ipv6 {
+		blacklistPath := filepath.Join(path.PrefixDir, fname_variant)
+		if _, err := os.Stat(blacklistPath); err == nil {
+			return true
+		}
 	}
 
 	// Check the "sharded" namespace.
@@ -226,6 +237,12 @@ func (ipf IPFilter) PrefixDirBlocked(clientIP net.IP, path IPPath) bool {
 	blacklistPath = filepath.Join(path.PrefixDir, c[0], c[1], fname)
 	if _, err := os.Stat(blacklistPath); err == nil {
 		return true
+	}
+	if is_ipv6 {
+		blacklistPath = filepath.Join(path.PrefixDir, c[0], c[1], fname_variant)
+		if _, err := os.Stat(blacklistPath); err == nil {
+			return true
+		}
 	}
 
 	return false

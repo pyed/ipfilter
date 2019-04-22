@@ -67,6 +67,13 @@ to use this more than once per `ipfilter` block.
   of the address. For example, *blacklist/127/0/127.0.0.1* or
   *blacklist/2601/647/2601:647:4601:fa93:1865:4b6c:d055:3f3*.
 
+  **Note:** IPv6 addresses as file names can use
+  colons or equal-signs to separate the components; e.g.,
+  *blacklist/2601/647/2601=647=4601=fa93==3f3*. Using equal-signs in
+  place of colons in the file name may be necessary on platforms like MS
+  Windows which assign special meaning to colons in file names. You have
+  to use one or the other; you cannot mix them in the same file name.
+
   Note that you can also whitelist IP addresses using this mechanism
   by specifying `rule allow`. This may be useful when it follows a more
   general blocking rule (e.g., by country) and you want to selectively
